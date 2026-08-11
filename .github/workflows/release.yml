@@ -184,7 +184,7 @@ jobs:
 
             test do
               assert_match version.to_s, shell_output("#{bin}/gwt --version")
-              assert_match "_gwt", shell_output("#{bin}/gwt completion zsh")
+              assert_match "COMPLETE", shell_output("#{bin}/gwt completion zsh")
             end
           end
           EOF

@@ -204,6 +204,60 @@ pub fn remote_branches_matching(cwd: &Path, branch: &str) -> Result<Vec<String>>
         .collect())
 }
 
+/// All local branch names.
+pub fn local_branches(cwd: &Path) -> Result<Vec<String>> {
+    let out = output(
+        cwd,
+        ["for-each-ref", "--format=%(refname:short)", "refs/heads"],
+    )?;
+    Ok(non_empty_lines(&out))
+}
+
+/// Remote-tracking branches as `(origin/feature/foo, feature/foo)`.
+///
+/// `refname:strip=3` drops `refs/remotes/<remote>/`, which keeps slashes in the
+/// branch name intact. `<remote>/HEAD` is skipped: it is a symbolic ref, not a
+/// branch anyone would want to check out.
+pub fn remote_branches(cwd: &Path) -> Result<Vec<(String, String)>> {
+    let out = output(
+        cwd,
+        [
+            "for-each-ref",
+            "--format=%(refname:short)%09%(refname:strip=3)",
+            "refs/remotes",
+        ],
+    )?;
+    Ok(out
+        .lines()
+        .filter_map(|line| line.split_once('\t'))
+        .filter(|(_, short)| *short != "HEAD" && !short.is_empty())
+        .map(|(full, short)| (full.to_string(), short.to_string()))
+        .collect())
+}
+
+/// Everything that can serve as a start point for a new branch.
+pub fn start_points(cwd: &Path) -> Result<Vec<String>> {
+    let out = output(
+        cwd,
+        [
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+            "refs/tags",
+            "refs/remotes",
+        ],
+    )?;
+    Ok(non_empty_lines(&out))
+}
+
+fn non_empty_lines(out: &str) -> Vec<String> {
+    out.lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 /// `true` if the worktree at `path` has staged or unstaged changes.
 pub fn is_dirty(path: &Path) -> Result<bool> {
     Ok(!output(path, ["status", "--porcelain"])?.is_empty())

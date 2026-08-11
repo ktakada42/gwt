@@ -1,15 +1,25 @@
 mod cli;
 mod commands;
+mod completion;
 mod config;
 mod git;
 mod hooks;
 mod repo;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 use cli::{Cli, Command};
+use commands::shell::COMPLETE_VAR;
 
 fn main() {
+    // Answers completion requests and exits; a no-op on a normal run. Must come
+    // before anything is written to stdout.
+    clap_complete::CompleteEnv::with_factory(Cli::command)
+        .var(COMPLETE_VAR)
+        .bin("gwt")
+        .completer("gwt")
+        .complete();
+
     if let Err(err) = run() {
         eprintln!("gwt: {err:#}");
         std::process::exit(1);

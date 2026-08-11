@@ -1,9 +1,11 @@
 //! `gwt shell-init` / `gwt completion` — shell integration.
 
 use anyhow::Result;
-use clap::CommandFactory;
 
-use crate::cli::{Cli, Shell, ShellArgs};
+use crate::cli::{Shell, ShellArgs};
+
+/// Environment variable the completion stubs use to ask gwt for candidates.
+pub const COMPLETE_VAR: &str = "COMPLETE";
 
 /// Wrapper function that turns `gwt cd` into a real directory change.
 ///
@@ -49,15 +51,16 @@ pub fn shell_init(args: ShellArgs) -> Result<()> {
     completion(args)
 }
 
+/// Emits the completion registration script.
+///
+/// Candidates are computed by the binary itself at completion time — that is
+/// what lets `gwt cd <TAB>` offer worktree names — so what is written here is
+/// only a small stub that calls back into `COMPLETE=<shell> gwt`.
 pub fn completion(args: ShellArgs) -> Result<()> {
-    let mut cmd = Cli::command();
     let mut out = Vec::new();
-    clap_complete::generate(
-        clap_complete::Shell::from(args.shell),
-        &mut cmd,
-        "gwt",
-        &mut out,
-    );
+    args.shell
+        .completer()
+        .write_registration(COMPLETE_VAR, "gwt", "gwt", "gwt", &mut out)?;
     print!("{}", String::from_utf8_lossy(&out));
     Ok(())
 }
@@ -67,17 +70,23 @@ mod tests {
     use super::*;
 
     fn generated(shell: Shell) -> String {
-        let mut cmd = Cli::command();
         let mut out = Vec::new();
-        clap_complete::generate(clap_complete::Shell::from(shell), &mut cmd, "gwt", &mut out);
+        shell
+            .completer()
+            .write_registration(COMPLETE_VAR, "gwt", "gwt", "gwt", &mut out)
+            .unwrap();
         String::from_utf8(out).unwrap()
     }
 
     #[test]
-    fn completions_are_generated_for_every_shell() {
+    fn registration_is_generated_for_every_shell() {
         for shell in [Shell::Bash, Shell::Zsh, Shell::Fish] {
             let script = generated(shell);
             assert!(script.contains("gwt"), "empty completion for {shell:?}");
+            assert!(
+                script.contains(COMPLETE_VAR),
+                "{shell:?} script does not call back into gwt"
+            );
         }
     }
 

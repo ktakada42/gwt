@@ -1,6 +1,9 @@
 //! Command line definition.
 
 use clap::{Parser, Subcommand, ValueEnum};
+use clap_complete::{ArgValueCandidates, ArgValueCompleter, PathCompleter};
+
+use crate::completion;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -47,14 +50,23 @@ pub enum Command {
 #[derive(Debug, clap::Args)]
 pub struct AddArgs {
     /// Branch to check out. Created when it does not exist yet
+    #[arg(add = ArgValueCandidates::new(completion::addable_branches))]
     pub branch: String,
 
     /// Start point for a newly created branch (commit, tag or branch)
-    #[arg(long, value_name = "COMMIT-ISH")]
+    #[arg(
+        long,
+        value_name = "COMMIT-ISH",
+        add = ArgValueCandidates::new(completion::start_points)
+    )]
     pub from: Option<String>,
 
     /// Path of the worktree, overriding the configured base_dir layout
-    #[arg(long, value_name = "PATH")]
+    #[arg(
+        long,
+        value_name = "PATH",
+        add = ArgValueCompleter::new(PathCompleter::dir())
+    )]
     pub path: Option<String>,
 
     /// Fail instead of creating a branch that does not exist
@@ -84,12 +96,14 @@ pub struct ListArgs {
 #[derive(Debug, clap::Args)]
 pub struct CdArgs {
     /// Worktree or branch name. Defaults to the main worktree
+    #[arg(add = ArgValueCandidates::new(completion::worktrees))]
     pub name: Option<String>,
 }
 
 #[derive(Debug, clap::Args)]
 pub struct RemoveArgs {
     /// Worktree or branch name
+    #[arg(add = ArgValueCandidates::new(completion::removable_worktrees))]
     pub name: String,
 
     /// Remove the branch as well when it is merged into the main worktree
@@ -122,12 +136,13 @@ pub enum Shell {
     Fish,
 }
 
-impl From<Shell> for clap_complete::Shell {
-    fn from(shell: Shell) -> Self {
-        match shell {
-            Shell::Bash => clap_complete::Shell::Bash,
-            Shell::Zsh => clap_complete::Shell::Zsh,
-            Shell::Fish => clap_complete::Shell::Fish,
+impl Shell {
+    /// The shell's adapter for environment-activated completions.
+    pub fn completer(self) -> &'static dyn clap_complete::env::EnvCompleter {
+        match self {
+            Shell::Bash => &clap_complete::env::Bash,
+            Shell::Zsh => &clap_complete::env::Zsh,
+            Shell::Fish => &clap_complete::env::Fish,
         }
     }
 }

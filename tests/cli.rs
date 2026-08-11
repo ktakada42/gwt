@@ -81,6 +81,34 @@ impl Fixture {
     fn write_config(&self, contents: &str) {
         std::fs::write(self.repo.join(".gwt.toml"), contents).unwrap();
     }
+
+    /// Asks for the candidates a shell would get for `words[index]`.
+    ///
+    /// This is the same protocol the scripts from `gwt completion` speak.
+    fn complete_in(&self, dir: &Path, index: usize, words: &[&str]) -> Vec<String> {
+        let out = Command::new(BIN)
+            .current_dir(dir)
+            .env("COMPLETE", "bash")
+            .env("_CLAP_COMPLETE_INDEX", index.to_string())
+            .arg("--")
+            .args(words)
+            .output()
+            .expect("failed to run gwt");
+        assert!(
+            out.status.success(),
+            "completion failed:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    /// Candidates for the last (empty) word of `words`.
+    fn complete(&self, words: &[&str]) -> Vec<String> {
+        self.complete_in(&self.repo, words.len() - 1, words)
+    }
 }
 
 fn git<I, S>(dir: &Path, args: I)
@@ -394,7 +422,104 @@ fn shell_init_emits_a_wrapper_and_completions() {
         let script = fx.gwt_ok(["shell-init", shell]);
         assert!(script.contains("gwt"), "{shell}: {script}");
         assert!(script.contains("cd"), "{shell}: {script}");
+        // The completion stub calls back into the binary for candidates.
+        assert!(script.contains("COMPLETE"), "{shell}: {script}");
     }
+}
+
+#[test]
+fn cd_completes_worktree_names() {
+    let fx = Fixture::new();
+    fx.gwt_ok(["add", "feature/one"]);
+    fx.gwt_ok(["add", "feature/two"]);
+
+    let candidates = fx.complete(&["gwt", "cd", ""]);
+    assert!(candidates.contains(&"@".to_string()), "{candidates:?}");
+    assert!(
+        candidates.contains(&"feature/one".to_string()),
+        "{candidates:?}"
+    );
+    assert!(
+        candidates.contains(&"feature/two".to_string()),
+        "{candidates:?}"
+    );
+
+    // Typing a prefix narrows the list.
+    let narrowed = fx.complete_in(&fx.repo, 2, &["gwt", "cd", "feature/o"]);
+    assert!(
+        narrowed.contains(&"feature/one".to_string()),
+        "{narrowed:?}"
+    );
+    assert!(
+        !narrowed.contains(&"feature/two".to_string()),
+        "{narrowed:?}"
+    );
+}
+
+#[test]
+fn remove_completion_leaves_out_the_main_worktree() {
+    let fx = Fixture::new();
+    fx.gwt_ok(["add", "feature/one"]);
+
+    let candidates = fx.complete(&["gwt", "remove", ""]);
+    assert!(
+        candidates.contains(&"feature/one".to_string()),
+        "{candidates:?}"
+    );
+    assert!(!candidates.contains(&"@".to_string()), "{candidates:?}");
+    assert!(!candidates.contains(&"main".to_string()), "{candidates:?}");
+}
+
+#[test]
+fn add_completes_branches_without_a_worktree() {
+    let fx = Fixture::new();
+    git(&fx.repo, ["branch", "local-only"]);
+    git(&fx.repo, ["branch", "remote-only"]);
+    git(&fx.repo, ["push", "-q", "origin", "remote-only"]);
+    git(&fx.repo, ["branch", "-D", "remote-only"]);
+    fx.gwt_ok(["add", "taken"]);
+
+    let candidates = fx.complete(&["gwt", "add", ""]);
+    assert!(
+        candidates.contains(&"local-only".to_string()),
+        "{candidates:?}"
+    );
+    // Remote-only branches appear under the name `gwt add` expects.
+    assert!(
+        candidates.contains(&"remote-only".to_string()),
+        "{candidates:?}"
+    );
+    assert!(
+        !candidates.contains(&"origin/remote-only".to_string()),
+        "{candidates:?}"
+    );
+    // Branches that already have a worktree would be rejected by `add`.
+    assert!(!candidates.contains(&"taken".to_string()), "{candidates:?}");
+    assert!(!candidates.contains(&"main".to_string()), "{candidates:?}");
+}
+
+#[test]
+fn from_completes_branches_and_tags() {
+    let fx = Fixture::new();
+    git(&fx.repo, ["tag", "v1.0.0"]);
+
+    let candidates = fx.complete(&["gwt", "add", "new-branch", "--from", ""]);
+    assert!(candidates.contains(&"main".to_string()), "{candidates:?}");
+    assert!(candidates.contains(&"v1.0.0".to_string()), "{candidates:?}");
+    assert!(
+        candidates.contains(&"origin/main".to_string()),
+        "{candidates:?}"
+    );
+}
+
+#[test]
+fn completion_outside_a_repository_is_empty() {
+    let fx = Fixture::new();
+    let outside = fx.root.join("not-a-repo");
+    std::fs::create_dir_all(&outside).unwrap();
+
+    let candidates = fx.complete_in(&outside, 2, &["gwt", "cd", ""]);
+    assert_eq!(candidates, vec!["--help".to_string()], "{candidates:?}");
 }
 
 #[test]

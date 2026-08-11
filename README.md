@@ -91,7 +91,7 @@ supported; on Windows the `symlink` hook needs developer mode or elevation.
 
 A process cannot change the directory of the shell that started it, so `gwt cd`
 prints a path and a small shell function does the actual `cd`. The same snippet
-installs tab completion.
+registers tab completion for worktree and branch names.
 
 ```bash
 # ~/.bashrc
@@ -113,6 +113,28 @@ Without the integration everything still works:
 cd "$(gwt cd feature/auth)"
 ```
 
+### Completion
+
+Completion is computed by `gwt` itself while you type, so it knows about your
+repository:
+
+```console
+$ gwt cd <TAB>
+@                    -- main worktree — /home/me/repo
+feature/auth         -- /home/me/worktrees/feature/auth
+
+$ gwt add <TAB>
+hotfix/login         -- local branch
+release/2.1          -- origin/release/2.1
+
+$ gwt remove <TAB>   # every worktree except the main one
+$ gwt add x --from <TAB>   # branches, tags and remote-tracking branches
+```
+
+`gwt add` only offers branches that do not have a worktree yet — the ones it
+would actually accept — and remote-only branches under the short name you would
+type. Outside a repository nothing is offered instead of an error.
+
 ## Commands
 
 | Command | What it does |
@@ -122,8 +144,8 @@ cd "$(gwt cd feature/auth)"
 | `gwt cd [<name>]` | Move into a worktree; no argument or `@` means the main worktree |
 | `gwt remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
 | `gwt init` | Write a `.gwt.toml` template |
-| `gwt shell-init <shell>` | Print the shell function and completions |
-| `gwt completion <shell>` | Print completions only |
+| `gwt shell-init <shell>` | Print the `cd` function and the completion hookup |
+| `gwt completion <shell>` | Print the completion hookup only |
 
 `<name>` is matched against branch names first, then paths below `base_dir`,
 then directory names — so `gwt cd feature/auth` and `gwt cd auth` both work

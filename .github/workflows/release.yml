@@ -130,11 +130,20 @@ jobs:
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
           echo "VER=${VER}"         >> "$GITHUB_ENV"
 
+      - name: Generate a token for the tap repo
+        id: tap-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.TAP_APP_ID }}
+          private-key: ${{ secrets.TAP_APP_PRIVATE_KEY }}
+          owner: ktakada42
+          repositories: homebrew-tap
+
       - name: Checkout tap
         uses: actions/checkout@v4
         with:
           repository: ktakada42/homebrew-tap
-          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          token: ${{ steps.tap-token.outputs.token }}
           path: homebrew-tap
 
       - name: Update Formula
@@ -192,8 +201,8 @@ jobs:
       - name: Commit and push
         run: |
           cd homebrew-tap
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name  "${{ steps.tap-token.outputs.app-slug }}[bot]"
+          git config user.email "${{ steps.tap-token.outputs.app-slug }}[bot]@users.noreply.github.com"
           git add Formula/gwt.rb
           git commit -m "gwt ${VER}"
           git push

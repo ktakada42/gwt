@@ -1,5 +1,7 @@
 [package]
-name = "gwt"
+# The command is `gwt`; the crate needs another name because `gwt` and
+# `gwt-cli` are both taken on crates.io by unrelated projects.
+name = "gwt-rs"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.82"
@@ -9,6 +11,10 @@ repository = "https://github.com/ktakada42/gwt"
 readme = "README.md"
 keywords = ["git", "worktree", "cli", "development"]
 categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "gwt"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"

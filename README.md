@@ -75,6 +75,11 @@ Requires a [Rust](https://rustup.rs) toolchain.
 cargo install --git https://github.com/ktakada42/gwt
 ```
 
+> [!WARNING]
+> Do not run `cargo install gwt`. The crate name `gwt` on crates.io belongs to
+> an unrelated project — this one is packaged as `gwt-rs` and installs a
+> command called `gwt`.
+
 ### Build from source
 
 ```bash

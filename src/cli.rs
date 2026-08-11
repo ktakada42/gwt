@@ -5,7 +5,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[derive(Debug, Parser)]
 #[command(
     name = "gwt",
-    version,
+    // Derived from `git describe` at build time; see build.rs.
+    version = env!("GWT_VERSION"),
     about = "A friendly git worktree manager",
     long_about = "gwt creates, lists and navigates git worktrees, with automatic \
                   path layout and per-repository hooks configured in .gwt.toml.",

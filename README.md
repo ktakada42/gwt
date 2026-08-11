@@ -43,16 +43,45 @@ $ gwt remove feature/auth --with-branch
 
 ## Installation
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install ktakada42/tap/gwt
+```
+
+To upgrade:
+
+```bash
+brew upgrade gwt
+```
+
+### Shell script (macOS / Linux)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ktakada42/gwt/main/install.sh | sh
+```
+
+Installs to `~/.local/bin` by default. Override with `INSTALL_DIR`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ktakada42/gwt/main/install.sh | INSTALL_DIR=/usr/local/bin sh
+```
+
+### cargo install
+
+Requires a [Rust](https://rustup.rs) toolchain.
+
 ```bash
 cargo install --git https://github.com/ktakada42/gwt
 ```
 
-Or from a clone:
+### Build from source
 
 ```bash
 git clone https://github.com/ktakada42/gwt
 cd gwt
-cargo install --path .
+cargo build --release
+./target/release/gwt --help
 ```
 
 Requires Rust 1.82+ to build and Git 2.17+ at runtime. Linux and macOS are
@@ -74,6 +103,9 @@ eval "$(gwt shell-init zsh)"
 # ~/.config/fish/config.fish
 gwt shell-init fish | source
 ```
+
+Homebrew installs the completion scripts for you, but `gwt cd` still needs the
+snippet above.
 
 Without the integration everything still works:
 

@@ -4,6 +4,8 @@
 //! they must be quick and must never fail: outside a repository, or when git
 //! misbehaves, the answer is simply "no candidates".
 
+use std::collections::BTreeMap;
+
 use clap_complete::CompletionCandidate;
 
 use crate::git;
@@ -66,11 +68,24 @@ pub fn addable_branches() -> Vec<CompletionCandidate> {
         .map(|b| CompletionCandidate::new(b).help(Some("local branch".into())))
         .collect();
 
+    // A branch name can live on several remotes; `gwt add` takes the short name,
+    // so those collapse into one candidate rather than appearing once per remote.
+    let mut by_short: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (full, short) in git::remote_branches(&repo.cwd).unwrap_or_default() {
         if locals.contains(&short) || in_use.contains(&short) {
             continue;
         }
-        candidates.push(CompletionCandidate::new(short).help(Some(full.into())));
+        by_short.entry(short).or_default().push(full);
+    }
+
+    for (short, remotes) in by_short {
+        let help = if remotes.len() == 1 {
+            remotes[0].clone()
+        } else {
+            // `gwt add` cannot pick between them; say so instead of looking usable.
+            format!("{} — ambiguous, needs --from", remotes.join(", "))
+        };
+        candidates.push(CompletionCandidate::new(short).help(Some(help.into())));
     }
     candidates
 }

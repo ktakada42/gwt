@@ -44,6 +44,22 @@ impl Fixture {
         self.root.join("worktrees")
     }
 
+    /// Adds a second bare remote, for the cases where a branch name is not
+    /// unique across remotes.
+    fn add_remote(&self, name: &str) {
+        let path = self.root.join(format!("{name}.git"));
+        git(
+            &self.root,
+            [
+                "init",
+                "--bare",
+                "--initial-branch=main",
+                &format!("{name}.git"),
+            ],
+        );
+        git(&self.repo, ["remote", "add", name, path.to_str().unwrap()]);
+    }
+
     fn gwt<I, S>(&self, args: I) -> Output
     where
         I: IntoIterator<Item = S>,
@@ -496,6 +512,27 @@ fn add_completes_branches_without_a_worktree() {
     // Branches that already have a worktree would be rejected by `add`.
     assert!(!candidates.contains(&"taken".to_string()), "{candidates:?}");
     assert!(!candidates.contains(&"main".to_string()), "{candidates:?}");
+}
+
+#[test]
+fn add_completion_lists_a_branch_once_per_name() {
+    let fx = Fixture::new();
+    fx.add_remote("upstream");
+
+    // The same branch name on two remotes, and one that exists both locally
+    // and on a remote.
+    git(&fx.repo, ["branch", "dual"]);
+    git(&fx.repo, ["push", "-q", "origin", "dual"]);
+    git(&fx.repo, ["push", "-q", "upstream", "dual"]);
+    git(&fx.repo, ["branch", "-D", "dual"]);
+    git(&fx.repo, ["branch", "both"]);
+    git(&fx.repo, ["push", "-q", "origin", "both"]);
+
+    let candidates = fx.complete(&["gwt", "add", ""]);
+    let count = |name: &str| candidates.iter().filter(|c| *c == name).count();
+
+    assert_eq!(count("dual"), 1, "{candidates:?}");
+    assert_eq!(count("both"), 1, "{candidates:?}");
 }
 
 #[test]

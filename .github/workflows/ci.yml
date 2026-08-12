@@ -30,6 +30,26 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all
 
+  # `rust-version` in Cargo.toml is a promise to anyone running
+  # `cargo install --git`. Testing only on stable lets that promise rot: a
+  # dependency picking up a newer edition breaks it without a single job going
+  # red. Build it with the version we claim, so the claim stays true.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Read rust-version from Cargo.toml
+        id: msrv
+        run: |
+          version=$(grep '^rust-version' Cargo.toml | cut -d'"' -f2)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Cargo.toml declares Rust $version"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --all-targets --locked
+
   coverage:
     runs-on: ubuntu-latest
     permissions:

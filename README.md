@@ -104,7 +104,7 @@ cargo build --release
 ./target/release/gwt --help
 ```
 
-Requires Rust 1.82+ to build and Git 2.17+ at runtime. Linux and macOS are
+Requires Rust 1.85+ to build and Git 2.17+ at runtime. Linux and macOS are
 supported; on Windows the `symlink` hook needs developer mode or elevation.
 
 ### Shell integration
@@ -381,7 +381,7 @@ reading the repository can follow along.
 
 ### Getting set up
 
-Requires Rust 1.82+ and Git 2.17+.
+Requires Rust 1.85+ and Git 2.17+.
 
 ```bash
 git clone https://github.com/ktakada42/gwt

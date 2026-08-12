@@ -5,6 +5,33 @@ use std::process::{Command, Output};
 
 const BIN: &str = env!("CARGO_BIN_EXE_gwt");
 
+/// Starts a command that cannot reach outside its fixture.
+///
+/// git reads its own environment before it reads `--git-dir` or the working
+/// directory, so a stray `GIT_DIR` sends every call in these tests at whatever
+/// repository set it. That is not hypothetical: run `cargo test` from a git
+/// hook — which is exactly what `.githooks/pre-commit` does — and git has
+/// already exported `GIT_DIR` pointing at the real checkout. The fixtures then
+/// reconfigure *it*, and `git init --bare` turns the working repository bare.
+fn command(program: &str) -> Command {
+    let mut cmd = Command::new(program);
+    for var in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_COMMON_DIR",
+        "GIT_PREFIX",
+        "GIT_CONFIG",
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ] {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
 struct Fixture {
     _tmp: tempfile::TempDir,
     root: PathBuf,
@@ -73,7 +100,7 @@ impl Fixture {
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
     {
-        Command::new(BIN)
+        command(BIN)
             .current_dir(dir)
             .args(args)
             .output()
@@ -102,7 +129,7 @@ impl Fixture {
     ///
     /// This is the same protocol the scripts from `gwt completion` speak.
     fn complete_in(&self, dir: &Path, index: usize, words: &[&str]) -> Vec<String> {
-        let out = Command::new(BIN)
+        let out = command(BIN)
             .current_dir(dir)
             .env("COMPLETE", "bash")
             .env("_CLAP_COMPLETE_INDEX", index.to_string())
@@ -132,7 +159,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let out = Command::new("git")
+    let out = command("git")
         .current_dir(dir)
         .args(args)
         .output()
@@ -149,7 +176,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<std::ffi::OsStr>,
 {
-    let out = Command::new("git")
+    let out = command("git")
         .current_dir(dir)
         .args(args)
         .output()
@@ -350,7 +377,7 @@ fn a_chosen_directory_is_handed_over_through_a_file() {
     let created = fx.gwt_ok(["add", "feature/handoff"]);
     let handoff = fx.root.join("cd-request");
 
-    let out = Command::new(BIN)
+    let out = command(BIN)
         .current_dir(&fx.repo)
         .env("GWT_CD_FILE", &handoff)
         .args(["cd", "feature/handoff"])
@@ -375,7 +402,7 @@ fn list_stays_plain_without_a_terminal() {
 
     // Even with the hand-off file offered, no terminal means no picker: the
     // table is printed and nothing asks the shell to move.
-    let out = Command::new(BIN)
+    let out = command(BIN)
         .current_dir(&fx.repo)
         .env("GWT_CD_FILE", &handoff)
         .arg("list")

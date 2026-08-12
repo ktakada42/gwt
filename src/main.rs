@@ -5,6 +5,7 @@ mod config;
 mod git;
 mod hooks;
 mod repo;
+mod tui;
 
 use clap::{CommandFactory, Parser};
 

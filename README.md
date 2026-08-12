@@ -168,7 +168,7 @@ type. Outside a repository nothing is offered instead of an error.
 | --- | --- |
 | `gwt add <branch>` | Create a worktree for `<branch>`, creating the branch if needed |
 | `gwt list` (`ls`) | List worktrees; the current one is marked with `*` |
-| `gwt cd [<name>]` | Move into a worktree; no argument or `@` means the main worktree |
+| `gwt cd [<name>]` | Move into a worktree; with no argument, pick one interactively |
 | `gwt remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
 | `gwt init` | Write a `.gwt.toml` template |
 | `gwt shell-init <shell>` | Print the `cd` function and the completion hookup |
@@ -177,6 +177,50 @@ type. Outside a repository nothing is offered instead of an error.
 `<name>` is matched against branch names first, then paths below `base_dir`,
 then directory names — so `gwt cd feature/auth` and `gwt cd auth` both work
 when they are unambiguous.
+
+### Picking a worktree interactively
+
+Run `gwt cd` with no argument and it opens a list you can move through:
+
+```
+> bill
+▶ feature/billing  a1b2c3d  /home/me/worktrees/feature/billing
+
+↑↓ move   ⏎ cd   ^d delete   esc cancel
+```
+
+| Key | Action |
+| --- | --- |
+| <kbd>↑</kbd> <kbd>↓</kbd> (or <kbd>Ctrl</kbd>+<kbd>p</kbd> / <kbd>n</kbd>) | Move the cursor |
+| type anything | Filter by name or path |
+| <kbd>Enter</kbd> | Change into the selected worktree |
+| <kbd>Ctrl</kbd>+<kbd>d</kbd> or <kbd>Delete</kbd> | Remove it, after a confirmation dialog |
+| <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+<kbd>c</kbd> | Leave without moving |
+
+Deletion is bound to <kbd>Ctrl</kbd>+<kbd>d</kbd> as well because the key
+labelled "delete" on Mac keyboards sends Backspace, which edits the filter.
+
+The confirmation dialog names what is at stake before you answer — uncommitted
+changes, and whether the branch is merged:
+
+```
+Remove this worktree?
+
+  /home/me/worktrees/feature/auth
+
+  ! uncommitted changes will be lost
+  branch `feature/auth` (merged)
+
+[y] remove worktree   [b] remove worktree and branch   [n] cancel
+```
+
+The main worktree and the one you are standing in are refused outright, same as
+`gwt remove`.
+
+Two cases keep the old behaviour of resolving to the main worktree instead of
+opening the picker: when there is no terminal to draw on (a script, a pipe, CI)
+and when the repository has no worktree other than the main one. `gwt cd @`
+always goes straight there.
 
 ### `gwt add`
 

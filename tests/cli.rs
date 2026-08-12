@@ -347,8 +347,10 @@ fn cd_resolves_names() {
     let created = fx.gwt_ok(["add", "feature/two"]);
 
     assert_eq!(fx.gwt_ok(["cd", "feature/two"]), created);
-    assert_eq!(fx.gwt_ok(["cd"]), fx.repo.to_str().unwrap());
     assert_eq!(fx.gwt_ok(["cd", "@"]), fx.repo.to_str().unwrap());
+    // There is no terminal here, so a bare `gwt cd` keeps resolving to the
+    // main worktree rather than opening the picker. Scripts rely on this.
+    assert_eq!(fx.gwt_ok(["cd"]), fx.repo.to_str().unwrap());
 
     // Resolution also works from inside another worktree.
     let out = fx.gwt_in(Path::new(&created), ["cd", "@"]);

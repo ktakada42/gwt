@@ -428,6 +428,12 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 (`feat(list):`, `fix(tui):`, `docs(readme):`). Say why in the body; the diff
 already says what.
 
+Adding a dependency pulls in a second check: `cargo audit` runs against the
+[RustSec advisory database](https://rustsec.org) whenever `Cargo.lock` changes,
+and again every Monday, since an advisory can appear without anything here
+changing. gwt ships prebuilt binaries, so a vulnerable dependency reaches
+everyone who installs it rather than only those who rebuild.
+
 Everything written into the repository is in English: commits, issues, pull
 requests, code, comments and docs. History up to v1.3.2 is in Japanese and
 stays that way — tags and releases point at those commits, so rewriting them

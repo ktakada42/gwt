@@ -1,0 +1,37 @@
+name: Audit
+
+# An advisory can appear without anything in this repository changing, so this
+# runs on a schedule as well as on the commits that could introduce one.
+# Checking only on push would mean learning about a new vulnerability whenever
+# somebody next happened to touch the code.
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/audit.yml
+  pull_request:
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/audit.yml
+  schedule:
+    # Mondays, 09:00 JST.
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      # cargo-audit is maintained by the Rust Secure Code Working Group and
+      # reads the same RustSec database that backs GitHub's own alerts. gwt
+      # ships prebuilt binaries, so a vulnerable dependency reaches everyone
+      # who installs it rather than only those who rebuild.
+      - run: cargo audit --deny warnings

@@ -818,7 +818,12 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
     )?;
     draw_prompt(tty, picker, matches.len(), cols)?;
 
-    // A header row, dimmed so it reads as a label rather than another entry.
+    // Bold and underlined, not dimmed. Dim is what the filter placeholder
+    // uses, and a header that shares it reads as another piece of hint text
+    // instead of the structure of the table. The underline runs the full width
+    // so it doubles as the rule between the header and the rows; carrying both
+    // attributes means the header still stands out on a terminal that renders
+    // only one of them.
     let header = fit(
         &format!("  {NAME_HEADER:<name_width$}  {HEAD_HEADER}  {STATUS_HEADER}"),
         cols,
@@ -826,7 +831,8 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
     queue!(
         tty,
         cursor::MoveTo(0, 1),
-        style::SetAttribute(style::Attribute::Dim),
+        style::SetAttribute(style::Attribute::Bold),
+        style::SetAttribute(style::Attribute::Underlined),
         style::Print(header),
         style::SetAttribute(style::Attribute::Reset),
     )?;

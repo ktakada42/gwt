@@ -211,9 +211,13 @@ changes, `merged` when the branch is already in the main worktree's `HEAD`.
 The `STATUS` column fills in a moment after the list appears — working it out
 costs a `git status` per worktree, which the list does not wait for.
 The path is not shown — gwt derives it from the branch name, so it only
-repeated what the first column already said. The selected row is highlighted
-across the full width, and a `*` in the first column marks the worktree you
-are standing in. In the help line, each key sits in a reverse-video badge.
+repeated what the first column already said.
+
+Each part of the screen is told apart by a different attribute rather than by
+shade alone: the header is bold and underlined, the selected row is highlighted
+across the full width, each key in the help line sits in a reverse-video badge,
+and only the hints that fade — the placeholder and the count — are dimmed. A
+`*` in the first column marks the worktree you are standing in.
 
 | Key | Action |
 | --- | --- |

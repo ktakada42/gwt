@@ -363,13 +363,68 @@ A failing hook stops the sequence and makes `gwt add` exit non-zero. When a
 `post_create` hook fails the worktree has already been created, so it is left
 in place for you to inspect. Pass `--no-hooks` to skip them entirely.
 
-## Development
+## Contributing
+
+Issues and pull requests are welcome — bug reports, ideas for the picker, hook
+types you wanted and did not find. Please write them in English so everyone
+reading the repository can follow along.
+
+### Getting set up
+
+Requires Rust 1.82+ and Git 2.17+.
 
 ```bash
+git clone https://github.com/ktakada42/gwt
+cd gwt
 cargo test           # unit tests plus end-to-end tests against real repos
-cargo clippy --all-targets -- -D warnings
-cargo fmt
 ```
+
+The end-to-end tests in `tests/cli.rs` create real repositories in a temporary
+directory and drive the built binary against them, so they need `git` on your
+PATH and nothing else. They are the fastest way to see how a command is
+expected to behave.
+
+To try your build without disturbing an installed copy:
+
+```bash
+cargo build --release
+export PATH="$PWD/target/release:$PATH"   # this shell only
+eval "$(gwt shell-init zsh)"
+```
+
+### Before opening a pull request
+
+```bash
+cargo fmt --all
+cargo clippy --all-targets -- -D warnings
+cargo test --all
+```
+
+CI runs the same three on Linux and macOS. Add a test with a behaviour change —
+`tests/cli.rs` for anything a user can observe from the command line, unit
+tests next to the code for the rest.
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org)
+(`feat(list):`, `fix(tui):`, `docs(readme):`). Say why in the body; the diff
+already says what.
+
+### Finding your way around
+
+| Path | What lives there |
+| --- | --- |
+| `src/cli.rs` | The command line, and which completions each argument offers |
+| `src/commands/` | One module per subcommand |
+| `src/tui.rs` | The interactive picker |
+| `src/hooks.rs` | Running `.gwt.toml` hooks |
+| `src/git.rs` | Every call out to `git` |
+| `src/cd_target.rs` | Handing a directory back to the shell |
+
+Two constraints are easy to trip over. The picker draws to `/dev/tty` rather
+than stdout, because stdout carries the chosen directory back to the shell
+function — anything printed there ends up in a `cd`. And everything the picker
+draws is plain ASCII: arrows and box-drawing characters are missing from some
+fonts, and characters with an emoji presentation render double width and shift
+the columns out of alignment.
 
 ## License
 

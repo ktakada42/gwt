@@ -45,6 +45,19 @@ pub enum Command {
 
     /// Print a completion script only
     Completion(ShellArgs),
+
+    /// Write man pages into a directory
+    ///
+    /// Hidden because it exists for whoever packages gwt, not for daily use.
+    #[command(hide = true)]
+    Man(ManArgs),
+}
+
+#[derive(Debug, clap::Args)]
+pub struct ManArgs {
+    /// Directory to write gwt.1 and one page per subcommand into
+    #[arg(long, value_name = "DIR")]
+    pub out_dir: std::path::PathBuf,
 }
 
 #[derive(Debug, clap::Args)]

@@ -265,9 +265,16 @@ pub fn is_dirty(path: &Path) -> Result<bool> {
 
 /// `true` if `branch` is fully contained in `HEAD` of the main worktree.
 pub fn is_merged(main: &Path, branch: &str) -> Result<bool> {
+    Ok(merged_branches(main)?.iter().any(|b| b == branch))
+}
+
+/// Every branch already contained in `HEAD` of the main worktree.
+///
+/// The picker asks about each worktree in turn; one call answers them all.
+pub fn merged_branches(main: &Path) -> Result<Vec<String>> {
     let out = output(
         main,
         ["branch", "--merged", "HEAD", "--format=%(refname:short)"],
     )?;
-    Ok(out.lines().any(|l| l.trim() == branch))
+    Ok(non_empty_lines(&out))
 }

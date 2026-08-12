@@ -178,6 +178,8 @@ jobs:
             def install
               bin.install "gwt"
               generate_completions_from_executable(bin/"gwt", "completion")
+              system bin/"gwt", "man", "--out-dir", buildpath/"man"
+              man1.install Dir[buildpath/"man/*.1"]
             end
 
             def caveats

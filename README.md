@@ -192,14 +192,25 @@ A bare `gwt cd` goes to the main worktree, the way a bare `cd` takes you home.
 `gwt list` opens a list you can move through:
 
 ```
-> bill
-  feature/billing  a1b2c3d  /home/me/worktrees/feature/billing   <- highlighted
+> _ type to filter                                        4 worktrees
+* @                a1b2c3d
+  feature/auth     a1b2c3d  dirty, merged
+  feature/billing  a1b2c3d  merged
+  hotfix           3d3cc2d
 
-up/down move   enter cd   ctrl-d or bksp delete   esc cancel
+ up/down  move   enter  cd   ctrl-d   backspace  delete   esc  cancel
 ```
 
-The selected row is highlighted across the full width; a `*` in the first
-column marks the worktree you are standing in.
+The filter line carries a block cursor and, on the right, how much of the list
+you are looking at — `1 of 4` once you start typing, so filtering everything
+away reads as `0 of 4` rather than an unexplained blank screen.
+
+Each row says what you need before acting on it: `dirty` for uncommitted
+changes, `merged` when the branch is already in the main worktree's `HEAD`.
+The path is not shown — gwt derives it from the branch name, so it only
+repeated what the first column already said. The selected row is highlighted
+across the full width, and a `*` in the first column marks the worktree you
+are standing in. In the help line, each key sits in a reverse-video badge.
 
 | Key | Action |
 | --- | --- |
@@ -212,7 +223,8 @@ column marks the worktree you are standing in.
 
 <kbd>Backspace</kbd> does double duty so that the key labelled "delete" on Mac
 keyboards — which sends Backspace, not Delete — can remove a worktree. The
-bottom line always says which of the two it will do right now.
+bottom line always says which of the two it will do right now. On a narrow
+terminal it drops `up/down move` first rather than cutting a word in half.
 
 Holding <kbd>Backspace</kbd> to clear what you typed cannot run past the empty
 filter into the delete dialog: the press at that boundary is swallowed, so

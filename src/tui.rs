@@ -13,7 +13,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use crossterm::{cursor, queue, style, terminal};
 
 use crate::commands::remove::{removal_blocker, remove_worktree, RemoveOptions};
-use crate::git::Worktree;
+use crate::git::{self, Worktree};
 use crate::repo::Repo;
 
 /// How the picker ended.
@@ -385,6 +385,8 @@ fn key_action(key: &KeyEvent) -> Action {
         KeyCode::Char('d') if ctrl => Action::Delete,
         KeyCode::Delete => Action::Delete,
         KeyCode::Backspace => Action::Backspace,
+        // Terminals told to send 0x08 for the erase key surface it as Ctrl-H.
+        KeyCode::Char('h') if ctrl => Action::Backspace,
         KeyCode::Char(c) if !ctrl => Action::Insert(c),
         _ => Action::None,
     }
@@ -395,20 +397,56 @@ fn load(repo: &Repo) -> Result<Vec<Item>> {
     let Some(main) = worktrees.first().cloned() else {
         return Ok(Vec::new());
     };
+    // One call answers "is it merged?" for every worktree.
+    let merged = git::merged_branches(&repo.main).unwrap_or_default();
+
     Ok(worktrees
         .into_iter()
-        .map(|wt| Item {
-            name: repo.display_name(&wt, &main),
-            head: wt.short_head(),
-            note: note(&wt),
-            is_current: repo.cwd.starts_with(&wt.path),
-            path: wt.path.clone(),
-            worktree: wt,
+        .map(|wt| {
+            let is_main = wt.path == main.path;
+            Item {
+                name: repo.display_name(&wt, &main),
+                head: wt.short_head(),
+                note: note(&wt, &merged, is_main),
+                is_current: repo.cwd.starts_with(&wt.path),
+                path: wt.path.clone(),
+                worktree: wt,
+            }
         })
         .collect())
 }
 
-fn note(wt: &Worktree) -> String {
+/// What is worth knowing about a worktree before acting on it.
+///
+/// The path used to sit here, but it is derived from the branch name for every
+/// worktree gwt creates, so it repeated what the name already said. What is
+/// missing at a glance is whether removing this one would lose anything.
+///
+/// "merged" is skipped for the main worktree: a branch is always merged into
+/// itself, and the main worktree cannot be removed anyway.
+fn note(wt: &Worktree, merged: &[String], is_main: bool) -> String {
+    let mut notes: Vec<String> = Vec::new();
+
+    if git::is_dirty(&wt.path).unwrap_or(false) {
+        notes.push("dirty".to_string());
+    }
+    if !is_main {
+        if let Some(branch) = &wt.branch {
+            if merged.contains(branch) {
+                notes.push("merged".to_string());
+            }
+        }
+    }
+    notes.extend(flags(wt).into_iter().map(str::to_string));
+
+    if notes.is_empty() {
+        String::new()
+    } else {
+        notes.join(", ")
+    }
+}
+
+fn flags(wt: &Worktree) -> Vec<&'static str> {
     let mut notes = Vec::new();
     if wt.bare {
         notes.push("bare");
@@ -419,30 +457,110 @@ fn note(wt: &Worktree) -> String {
     if wt.locked {
         notes.push("locked");
     }
-    if notes.is_empty() {
-        String::new()
+    notes
+}
+
+/// One entry of the help line: the key, then what it does.
+///
+/// The key is drawn in reverse video, which gives the boundary between key and
+/// label a shape rather than leaving it to whitespace. It reuses the attribute
+/// the cursor row already uses, so it holds up on any colour theme.
+struct Hint {
+    keys: &'static [&'static str],
+    label: &'static str,
+    /// Dropped first when the terminal is too narrow for the full line.
+    optional: bool,
+}
+
+/// Keys are spelled out: `bksp` is keycap shorthand, not something a help line
+/// can assume its reader knows.
+///
+/// Everything here is plain ASCII on purpose — arrows and the return symbol
+/// land in ranges that terminals disagree about, and U+25B6 in particular has
+/// an emoji presentation that renders double width and shifts the whole row.
+const HINTS_IDLE: &[Hint] = &[
+    Hint {
+        keys: &["up/down"],
+        label: "move",
+        optional: true,
+    },
+    Hint {
+        keys: &["enter"],
+        label: "cd",
+        optional: false,
+    },
+    Hint {
+        keys: &["ctrl-d", "backspace"],
+        label: "delete",
+        optional: false,
+    },
+    Hint {
+        keys: &["esc"],
+        label: "cancel",
+        optional: false,
+    },
+];
+
+/// While a filter is typed, Backspace edits it instead of deleting.
+const HINTS_FILTERING: &[Hint] = &[
+    Hint {
+        keys: &["up/down"],
+        label: "move",
+        optional: true,
+    },
+    Hint {
+        keys: &["enter"],
+        label: "cd",
+        optional: false,
+    },
+    Hint {
+        keys: &["ctrl-d"],
+        label: "delete",
+        optional: false,
+    },
+    Hint {
+        keys: &["backspace"],
+        label: "erase",
+        optional: false,
+    },
+    Hint {
+        keys: &["esc"],
+        label: "cancel",
+        optional: false,
+    },
+];
+
+/// The hints matching what Backspace does right now.
+fn hints_for(picker: &Picker) -> &'static [Hint] {
+    if picker.filter.is_empty() {
+        HINTS_IDLE
     } else {
-        format!(" ({})", notes.join(", "))
+        HINTS_FILTERING
     }
 }
 
-/// Help for when Backspace would remove a worktree.
-///
-/// Kept to plain ASCII on purpose: arrows and the return symbol land in ranges
-/// that terminals disagree about, and U+25B6 in particular has an emoji
-/// presentation that renders double width and shifts the whole row.
-const HELP_IDLE: &str = "up/down move   enter cd   ctrl-d or bksp delete   esc cancel";
+/// Columns a set of hints needs, badges included.
+fn hints_width(hints: &[&Hint]) -> usize {
+    hints
+        .iter()
+        .map(|h| {
+            // Each key sits in a badge padded by one space on either side.
+            let keys: usize = h.keys.iter().map(|k| k.chars().count() + 2).sum();
+            let between_keys = h.keys.len() - 1;
+            keys + between_keys + 1 + h.label.chars().count()
+        })
+        .sum::<usize>()
+        + hints.len().saturating_sub(1) * 2
+}
 
-/// Help for when Backspace would edit the filter instead.
-const HELP_FILTERING: &str = "up/down move   enter cd   ctrl-d delete   bksp erase   esc cancel";
-
-/// The help line matching what Backspace does right now.
-fn help_for(picker: &Picker) -> &'static str {
-    if picker.filter.is_empty() {
-        HELP_IDLE
-    } else {
-        HELP_FILTERING
+/// Drops optional hints until the line fits, rather than truncating mid-word.
+fn hints_that_fit(hints: &'static [Hint], width: usize) -> Vec<&'static Hint> {
+    let mut kept: Vec<&Hint> = hints.iter().collect();
+    while hints_width(&kept) > width && kept.iter().any(|h| h.optional) {
+        let index = kept.iter().position(|h| h.optional).unwrap();
+        kept.remove(index);
     }
+    kept
 }
 
 /// Truncates to `width` and pads to it, so a highlighted row spans the line.
@@ -453,6 +571,68 @@ fn fit(line: &str, width: usize) -> String {
         out.extend(std::iter::repeat_n(' ', width - len));
     }
     out
+}
+
+const PLACEHOLDER: &str = "type to filter";
+
+/// What the right of the prompt says about the list below it.
+///
+/// While filtering, this is the only place the size of the list is stated —
+/// without it, typing something that matches nothing just empties the screen
+/// with no explanation.
+fn count_label(filter: &str, matched: usize, total: usize) -> String {
+    if !filter.is_empty() {
+        return format!("{matched} of {total}");
+    }
+    match total {
+        1 => "1 worktree".to_string(),
+        n => format!("{n} worktrees"),
+    }
+}
+
+/// Draws the filter line: prompt, what has been typed, a block cursor, and —
+/// while nothing is typed — what typing would do.
+///
+/// The terminal's own cursor is hidden for the whole picker, so the block is
+/// drawn by hand as a space in reverse video. Without it, an empty filter line
+/// is a lone `>` that gives no sign it accepts input.
+fn draw_prompt(tty: &mut File, picker: &Picker, matched: usize, cols: usize) -> Result<()> {
+    let placeholder = if picker.filter.is_empty() {
+        PLACEHOLDER
+    } else {
+        ""
+    };
+    let count = count_label(&picker.filter, matched, picker.items.len());
+    let left = 2 + picker.filter.chars().count() + 1 + placeholder.chars().count();
+
+    queue!(tty, style::Print("> "), style::Print(&picker.filter))?;
+    queue!(
+        tty,
+        style::SetAttribute(style::Attribute::Reverse),
+        style::Print(" "),
+        style::SetAttribute(style::Attribute::Reset),
+    )?;
+    if !placeholder.is_empty() {
+        queue!(
+            tty,
+            style::SetAttribute(style::Attribute::Dim),
+            style::Print(placeholder),
+            style::SetAttribute(style::Attribute::Reset),
+        )?;
+    }
+
+    // Right-aligned, and dropped rather than wrapped when the line is full.
+    let gap = cols.saturating_sub(left + count.chars().count());
+    if gap > 0 {
+        queue!(
+            tty,
+            style::Print(" ".repeat(gap)),
+            style::SetAttribute(style::Attribute::Dim),
+            style::Print(count),
+            style::SetAttribute(style::Attribute::Reset),
+        )?;
+    }
+    Ok(())
 }
 
 fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()> {
@@ -474,8 +654,8 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
         tty,
         terminal::Clear(terminal::ClearType::All),
         cursor::MoveTo(0, 0),
-        style::Print(format!("> {}", picker.filter)),
     )?;
+    draw_prompt(tty, picker, matches.len(), cols)?;
 
     for (row, &index) in matches.iter().skip(picker.offset).take(height).enumerate() {
         let item = &picker.items[index];
@@ -484,11 +664,8 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
         // highlight, so the two never compete for the same character.
         let marker = if item.is_current { "*" } else { " " };
         let line = format!(
-            "{marker} {:<name_width$}  {}  {}{}",
-            item.name,
-            item.head,
-            item.path.display(),
-            item.note
+            "{marker} {:<name_width$}  {}  {}",
+            item.name, item.head, item.note
         );
         let line = fit(&line, cols);
         queue!(tty, cursor::MoveTo(0, row as u16 + 1))?;
@@ -513,12 +690,31 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
             style::Print(message.chars().take(cols).collect::<String>()),
         )?;
     }
-    queue!(
-        tty,
-        cursor::MoveTo(0, rows.saturating_sub(1)),
-        style::Print(help_for(picker).chars().take(cols).collect::<String>()),
-    )?;
+    queue!(tty, cursor::MoveTo(0, rows.saturating_sub(1)))?;
+    draw_hints(tty, &hints_that_fit(hints_for(picker), cols))?;
     tty.flush()?;
+    Ok(())
+}
+
+/// Draws the help line, each key as a reverse-video badge.
+fn draw_hints(tty: &mut File, hints: &[&Hint]) -> Result<()> {
+    for (i, hint) in hints.iter().enumerate() {
+        if i > 0 {
+            queue!(tty, style::Print("  "))?;
+        }
+        for (k, key) in hint.keys.iter().enumerate() {
+            if k > 0 {
+                queue!(tty, style::Print(" "))?;
+            }
+            queue!(
+                tty,
+                style::SetAttribute(style::Attribute::Reverse),
+                style::Print(format!(" {key} ")),
+                style::SetAttribute(style::Attribute::Reset),
+            )?;
+        }
+        queue!(tty, style::Print(format!(" {}", hint.label)))?;
+    }
     Ok(())
 }
 
@@ -557,9 +753,13 @@ mod tests {
     fn the_interface_is_ascii_only() {
         // Non-ASCII risks missing glyphs, and emoji-presentation characters
         // render double width and break the column alignment.
+        for hint in HINTS_IDLE.iter().chain(HINTS_FILTERING) {
+            for key in hint.keys {
+                assert!(key.is_ascii(), "{key}");
+            }
+            assert!(hint.label.is_ascii(), "{}", hint.label);
+        }
         for label in [
-            HELP_IDLE,
-            HELP_FILTERING,
             "Remove this worktree?",
             "  ! uncommitted changes will be lost",
             "[y] remove worktree   [b] remove worktree and branch   [n] cancel",
@@ -569,23 +769,65 @@ mod tests {
     }
 
     #[test]
-    fn the_help_spells_out_the_modifier_key() {
-        // `^d` reads as noise to anyone who has not seen the convention.
-        for help in [HELP_IDLE, HELP_FILTERING] {
-            assert!(help.contains("ctrl-d"), "{help}");
-            assert!(!help.contains("^d"), "{help}");
-        }
+    fn keys_are_spelled_out() {
+        // `^d` and `bksp` are shorthand a help line cannot assume its reader
+        // knows, so both are written in full.
+        let keys: Vec<&str> = HINTS_IDLE
+            .iter()
+            .chain(HINTS_FILTERING)
+            .flat_map(|h| h.keys.iter().copied())
+            .collect();
+        assert!(keys.contains(&"ctrl-d"), "{keys:?}");
+        assert!(keys.contains(&"backspace"), "{keys:?}");
+        assert!(!keys.iter().any(|k| k.contains("bksp") || k.contains('^')));
     }
 
     #[test]
     fn the_help_says_what_backspace_will_do() {
         let mut p = picker();
-        assert_eq!(help_for(&p), HELP_IDLE);
-        assert!(help_for(&p).contains("bksp delete"), "{}", help_for(&p));
+        let idle = hints_for(&p);
+        let delete = idle.iter().find(|h| h.label == "delete").unwrap();
+        assert!(delete.keys.contains(&"backspace"), "{:?}", delete.keys);
 
         p.push_filter('a');
-        assert_eq!(help_for(&p), HELP_FILTERING);
-        assert!(help_for(&p).contains("bksp erase"), "{}", help_for(&p));
+        let filtering = hints_for(&p);
+        let erase = filtering.iter().find(|h| h.label == "erase").unwrap();
+        assert_eq!(erase.keys, &["backspace"]);
+        // While filtering, deleting is ctrl-d only.
+        let delete = filtering.iter().find(|h| h.label == "delete").unwrap();
+        assert_eq!(delete.keys, &["ctrl-d"]);
+    }
+
+    #[test]
+    fn a_narrow_terminal_drops_optional_hints_instead_of_cutting_words() {
+        let full = hints_width(&HINTS_IDLE.iter().collect::<Vec<_>>());
+        assert_eq!(hints_that_fit(HINTS_IDLE, full).len(), HINTS_IDLE.len());
+
+        // One column short: the optional "move" hint goes, the rest survive.
+        let narrowed = hints_that_fit(HINTS_IDLE, full - 1);
+        assert_eq!(narrowed.len(), HINTS_IDLE.len() - 1);
+        assert!(!narrowed.iter().any(|h| h.label == "move"));
+        assert!(narrowed.iter().any(|h| h.label == "cancel"));
+
+        // Nothing optional left to drop: the required hints are kept.
+        assert!(!hints_that_fit(HINTS_IDLE, 1).is_empty());
+    }
+
+    #[test]
+    fn the_count_explains_an_empty_list() {
+        // Nothing typed: the size of the list.
+        assert_eq!(count_label("", 4, 4), "4 worktrees");
+        assert_eq!(count_label("", 1, 1), "1 worktree");
+        // Typing: how much of it survived, so filtering everything away reads
+        // as `0 of 4` instead of an unexplained blank screen.
+        assert_eq!(count_label("bill", 1, 4), "1 of 4");
+        assert_eq!(count_label("zzz", 0, 4), "0 of 4");
+    }
+
+    #[test]
+    fn the_placeholder_is_ascii_and_says_what_typing_does() {
+        assert!(PLACEHOLDER.is_ascii(), "{PLACEHOLDER}");
+        assert!(PLACEHOLDER.contains("filter"), "{PLACEHOLDER}");
     }
 
     #[test]

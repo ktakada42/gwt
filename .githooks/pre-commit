@@ -1,0 +1,41 @@
+#!/bin/sh
+# Runs the checks CI runs, so a red build is caught before it is pushed.
+#
+# Enable with:
+#   git config core.hooksPath .githooks
+#
+# Commits that touch no Rust skip clippy and the tests: a README fix should not
+# cost a full build, and a hook slow enough to be annoying is a hook people
+# start passing --no-verify to.
+
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+
+# Nothing staged (an empty or amend-only commit) leaves nothing to check.
+[ -n "$staged" ] || exit 0
+
+echo "$staged" | grep -qE '\.rs$|^Cargo\.(toml|lock)$|^build\.rs$' && rust=yes || rust=no
+
+if [ "$rust" = no ]; then
+    echo "pre-commit: no Rust changed, skipping clippy and tests"
+    exit 0
+fi
+
+if ! command -v cargo >/dev/null 2>&1; then
+    echo "pre-commit: cargo not found; skipping" >&2
+    exit 0
+fi
+
+echo "pre-commit: cargo fmt --check"
+if ! cargo fmt --all --check; then
+    echo >&2
+    echo "pre-commit: formatting differs. Run: cargo fmt --all" >&2
+    exit 1
+fi
+
+echo "pre-commit: cargo clippy"
+cargo clippy --all-targets -- -D warnings
+
+echo "pre-commit: cargo test"
+cargo test --all

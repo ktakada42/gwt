@@ -408,9 +408,24 @@ CI runs the same three on Linux and macOS. Add a test with a behaviour change �
 `tests/cli.rs` for anything a user can observe from the command line, unit
 tests next to the code for the rest.
 
+Or let a hook run them for you:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`.githooks/pre-commit` runs all three before each commit. A commit touching no
+Rust — a README fix, say — skips clippy and the tests and returns straight
+away, so only the commits that could break the build pay for the wait.
+
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org)
 (`feat(list):`, `fix(tui):`, `docs(readme):`). Say why in the body; the diff
 already says what.
+
+Everything written into the repository is in English: commits, issues, pull
+requests, code, comments and docs. History up to v1.3.2 is in Japanese and
+stays that way — tags and releases point at those commits, so rewriting them
+would break every link for no real gain.
 
 ### Finding your way around
 

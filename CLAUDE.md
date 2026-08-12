@@ -14,6 +14,11 @@ in Japanese is fine, the commit it asks for is not.
 
 Release notes on GitHub Releases are English for the same reason.
 
+History up to v1.3.2 is in Japanese, from before this rule existed. **Leave it
+alone.** Tags and releases point at those commits, so rewriting them breaks
+every link, and the closed issues are a record of decisions as they were made.
+The rule applies from here on, not backwards.
+
 ## Commits
 
 Conventional Commits, with a scope where one is obvious:
@@ -37,6 +42,15 @@ cargo test --all
 ```
 
 CI runs all three on Linux and macOS, so a failure here is a failure there.
+
+`.githooks/pre-commit` runs them automatically once `core.hooksPath` is set:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+It skips clippy and the tests for commits that touch no Rust, which keeps a
+docs-only commit instant. Do not reach for `--no-verify`; fix the check.
 
 ## Working on the code
 

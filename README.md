@@ -173,7 +173,7 @@ type. Outside a repository nothing is offered instead of an error.
 | --- | --- |
 | `gwt add <branch>` | Create a worktree for `<branch>`, creating the branch if needed |
 | `gwt list` (`ls`) | Pick a worktree interactively; `--plain` or `--paths` for text |
-| `gwt cd [<name>]` | Move into a worktree; with no argument, pick one interactively |
+| `gwt cd [<name>]` | Move into a worktree; with no argument, to the main one |
 | `gwt remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
 | `gwt init` | Write a `.gwt.toml` template |
 | `gwt shell-init <shell>` | Print the `cd` function and the completion hookup |
@@ -183,9 +183,13 @@ type. Outside a repository nothing is offered instead of an error.
 then directory names — so `gwt cd feature/auth` and `gwt cd auth` both work
 when they are unambiguous.
 
+A bare `gwt cd` goes to the main worktree, the way a bare `cd` takes you home.
+`gwt cd @` says the same thing explicitly. To choose from a list instead, use
+`gwt list`.
+
 ### Picking a worktree interactively
 
-`gwt list`, and `gwt cd` with no argument, open a list you can move through:
+`gwt list` opens a list you can move through:
 
 ```
 > bill
@@ -224,10 +228,9 @@ The main worktree and the one you are standing in are refused outright, same as
 
 Two cases skip the picker entirely: when there is no terminal to draw on (a
 script, a pipe, CI) and when the repository has no worktree other than the main
-one. `gwt list` then prints its table and `gwt cd` resolves to the main
-worktree, exactly as before — so existing scripts keep working. Ask for text in
-a terminal with `gwt list --plain`, or `gwt list --paths` for one path per line.
-`gwt cd @` always goes straight to the main worktree.
+one. `gwt list` then prints its table, exactly as before, so existing scripts
+keep working. Ask for text in a terminal with `gwt list --plain`, or
+`gwt list --paths` for one path per line.
 
 The picker hands the directory to the shell function through a temporary file
 named by `GWT_CD_FILE`, which leaves stdout free for `gwt list` to print on.

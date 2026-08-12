@@ -55,6 +55,10 @@ To upgrade:
 brew upgrade gwt
 ```
 
+> [!WARNING]
+> Install with the full `ktakada42/tap/gwt` name. Plain `brew install gwt`
+> pulls `gwt` from homebrew-core, which is Google Web Toolkit.
+
 ### Shell script (macOS / Linux)
 
 ```bash

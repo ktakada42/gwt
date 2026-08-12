@@ -1,0 +1,18 @@
+coverage:
+  status:
+    # Catch regressions without pinning an absolute number.
+    project:
+      default:
+        target: auto
+        threshold: 1%
+    # Reported but not enforced. Much of src/tui.rs is drawing and an event
+    # loop, which needs a terminal to exercise; a hard patch target would fail
+    # honest changes to the picker and teach everyone to ignore the check.
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: "reach,diff,flags,files"
+  behavior: default
+  require_changes: false

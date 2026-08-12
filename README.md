@@ -1,5 +1,11 @@
 # gwt
 
+[![CI](https://github.com/ktakada42/gwt/actions/workflows/ci.yml/badge.svg)](https://github.com/ktakada42/gwt/actions/workflows/ci.yml)
+[![Release](https://github.com/ktakada42/gwt/actions/workflows/release.yml/badge.svg)](https://github.com/ktakada42/gwt/actions/workflows/release.yml)
+[![codecov](https://codecov.io/gh/ktakada42/gwt/graph/badge.svg)](https://codecov.io/gh/ktakada42/gwt)
+[![GitHub release](https://img.shields.io/github/v/release/ktakada42/gwt)](https://github.com/ktakada42/gwt/releases/latest)
+[![License](https://img.shields.io/github/license/ktakada42/gwt)](LICENSE)
+
 A friendly `git worktree` manager, written in Rust.
 
 `git worktree` is great, but it makes you repeat yourself: you type the branch

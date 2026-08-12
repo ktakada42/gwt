@@ -428,11 +428,24 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 (`feat(list):`, `fix(tui):`, `docs(readme):`). Say why in the body; the diff
 already says what.
 
-Adding a dependency pulls in a second check: `cargo audit` runs against the
-[RustSec advisory database](https://rustsec.org) whenever `Cargo.lock` changes,
-and again every Monday, since an advisory can appear without anything here
-changing. gwt ships prebuilt binaries, so a vulnerable dependency reaches
-everyone who installs it rather than only those who rebuild.
+Adding a dependency pulls in two more checks, both running whenever
+`Cargo.lock` changes. gwt ships prebuilt binaries, so whatever a dependency
+brings with it reaches everyone who installs gwt, not only the people who
+rebuild from source.
+
+- `cargo audit`, against the [RustSec advisory database](https://rustsec.org),
+  and again every Monday — an advisory can appear without anything here
+  changing.
+- `cargo deny check licenses`, against the policy in `deny.toml`. gwt is MIT,
+  so a copyleft dependency arriving in a routine version bump would leave the
+  released binaries undistributable.
+
+Both are worth running before you propose a new dependency:
+
+```bash
+cargo audit
+cargo deny check licenses
+```
 
 Everything written into the repository is in English: commits, issues, pull
 requests, code, comments and docs. History up to v1.3.2 is in Japanese and

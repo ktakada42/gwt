@@ -35,3 +35,19 @@ jobs:
       # ships prebuilt binaries, so a vulnerable dependency reaches everyone
       # who installs it rather than only those who rebuild.
       - run: cargo audit --deny warnings
+
+  # Separate from the audit above because it answers a different question, and
+  # because there is no equivalent of cargo-audit for licences: the Rust
+  # project ships no licence-policy tool, so this one is third party. It only
+  # ever runs in CI, so it stays out of the released binary.
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+      # gwt is MIT and distributes binaries, so a copyleft dependency arriving
+      # in a routine bump would make them undistributable. See deny.toml.
+      - run: cargo deny check licenses sources

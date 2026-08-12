@@ -1,0 +1,49 @@
+# License policy for the dependency tree.
+#
+# gwt is MIT and ships prebuilt binaries, so every dependency's license travels
+# with the binary to whoever installs it. A copyleft crate arriving through a
+# routine Dependabot bump would make those binaries undistributable, and
+# nothing else in CI would notice.
+#
+# Advisories are not checked here — `cargo audit` does that, and it is the
+# Rust Secure Code Working Group's own tool. This file exists because there is
+# no official equivalent for licenses.
+#
+# Run locally with: cargo deny check licenses
+
+[licenses]
+# Permissive only. Everything currently in the tree is MIT or Apache-2.0, plus
+# Unicode-3.0 from unicode-ident. The rest are here because they are the
+# permissive licenses a Rust dependency realistically shows up with, so a
+# normal bump does not need this file edited to go green.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+# The list is a policy, not an inventory: most of it is unused today and that
+# is the point, so a permissive crate arriving in a routine bump does not need
+# this file edited before CI goes green. Copyleft is what should stop and ask,
+# and MPL-2.0 is deliberately absent — it is weak copyleft, so distributing a
+# binary containing it carries obligations worth deciding on rather than
+# pre-approving.
+unused-allowed-license = "allow"
+
+# A crate offering a choice of licenses takes the one listed first above.
+confidence-threshold = 0.9
+
+[bans]
+# Duplicate versions are noise in a tree this size — proc-macro crates
+# routinely pull two majors of `syn` — so they are reported, not rejected.
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

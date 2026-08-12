@@ -811,13 +811,11 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
         // Never narrower than the column it is labelled with.
         .max(NAME_HEADER.len());
 
-    queue!(
-        tty,
-        terminal::Clear(terminal::ClearType::All),
-        cursor::MoveTo(0, 0),
-    )?;
-    draw_prompt(tty, picker, matches.len(), cols)?;
-
+    // The table starts at the top, so the header sits against the rows it
+    // labels; the filter joins the help line at the bottom, where the things
+    // you operate live. Butting the filter against the header, as this used
+    // to, made the two read as one block of chrome.
+    //
     // Bold and underlined, not dimmed. Dim is what the filter placeholder
     // uses, and a header that shares it reads as another piece of hint text
     // instead of the structure of the table. The underline runs the full width
@@ -830,7 +828,8 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
     );
     queue!(
         tty,
-        cursor::MoveTo(0, 1),
+        terminal::Clear(terminal::ClearType::All),
+        cursor::MoveTo(0, 0),
         style::SetAttribute(style::Attribute::Bold),
         style::SetAttribute(style::Attribute::Underlined),
         style::Print(header),
@@ -848,7 +847,7 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
             item.name, item.head, item.note
         );
         let line = fit(&line, cols);
-        queue!(tty, cursor::MoveTo(0, row as u16 + 2))?;
+        queue!(tty, cursor::MoveTo(0, row as u16 + 1))?;
         if is_cursor {
             // Reverse video rather than a colour: it stays readable on any
             // theme, and highlights the row edge to edge.
@@ -866,10 +865,13 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
     if let Some(message) = message {
         queue!(
             tty,
-            cursor::MoveTo(0, rows.saturating_sub(2)),
+            cursor::MoveTo(0, rows.saturating_sub(3)),
             style::Print(message.chars().take(cols).collect::<String>()),
         )?;
     }
+    queue!(tty, cursor::MoveTo(0, rows.saturating_sub(2)))?;
+    draw_prompt(tty, picker, matches.len(), cols)?;
+
     queue!(tty, cursor::MoveTo(0, rows.saturating_sub(1)))?;
     draw_hints(tty, &hints_that_fit(hints_for(picker), cols))?;
     tty.flush()?;

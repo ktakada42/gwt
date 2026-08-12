@@ -192,15 +192,19 @@ A bare `gwt cd` goes to the main worktree, the way a bare `cd` takes you home.
 `gwt list` opens a list you can move through:
 
 ```
-> _ type to filter                                        4 worktrees
   WORKTREE         HEAD     STATUS
 * @                a1b2c3d
   feature/auth     a1b2c3d  dirty, merged
   feature/billing  a1b2c3d  merged
   hotfix           3d3cc2d
 
+> _ type to filter                                        4 worktrees
  up/down  move   enter  cd   ctrl-d   backspace  delete   esc  cancel
 ```
+
+The table starts at the top, so the header sits against the rows it labels.
+The filter joins the help line at the bottom, where the things you operate
+live.
 
 The filter line carries a block cursor and, on the right, how much of the list
 you are looking at — `1 of 4` once you start typing, so filtering everything

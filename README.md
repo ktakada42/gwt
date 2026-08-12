@@ -116,6 +116,24 @@ gwt shell-init fish | source
 Homebrew installs the completion scripts for you, but `gwt cd` still needs the
 snippet above.
 
+#### Using oh-my-zsh?
+
+Its `git` plugin defines `alias gwt='git worktree'`, which hides this tool —
+zsh expands aliases before it looks for functions or commands. The alias even
+swallows the `gwt` inside the snippet above, so sourcing it reports
+``unknown subcommand: `shell-init'`` (or `not a git repository` when you are
+outside a repo). Drop the alias first:
+
+```zsh
+# ~/.zshrc, after `source $ZSH/oh-my-zsh.sh`
+unalias gwt 2>/dev/null
+eval "$(gwt shell-init zsh)"
+```
+
+Order matters: the `unalias` has to come first. If one `.zshrc` is shared
+across machines, guard the second line with `command -v gwt >/dev/null &&` so
+hosts without gwt stay quiet.
+
 Without the integration everything still works:
 
 ```bash

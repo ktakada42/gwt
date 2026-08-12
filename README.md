@@ -193,6 +193,7 @@ A bare `gwt cd` goes to the main worktree, the way a bare `cd` takes you home.
 
 ```
 > _ type to filter                                        4 worktrees
+  WORKTREE         HEAD     STATUS
 * @                a1b2c3d
   feature/auth     a1b2c3d  dirty, merged
   feature/billing  a1b2c3d  merged
@@ -207,6 +208,8 @@ away reads as `0 of 4` rather than an unexplained blank screen.
 
 Each row says what you need before acting on it: `dirty` for uncommitted
 changes, `merged` when the branch is already in the main worktree's `HEAD`.
+The `STATUS` column fills in a moment after the list appears — working it out
+costs a `git status` per worktree, which the list does not wait for.
 The path is not shown — gwt derives it from the branch name, so it only
 repeated what the first column already said. The selected row is highlighted
 across the full width, and a `*` in the first column marks the worktree you

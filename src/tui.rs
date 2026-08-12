@@ -53,8 +53,10 @@ struct Item {
     name: String,
     path: PathBuf,
     head: String,
+    /// Empty until [`StatusFeed`] reports back.
     note: String,
     is_current: bool,
+    is_main: bool,
     worktree: Worktree,
 }
 
@@ -210,16 +212,21 @@ impl Drop for Screen {
     }
 }
 
+/// How often the loop looks for status results while they are still coming.
+const STATUS_POLL: std::time::Duration = std::time::Duration::from_millis(60);
+
 /// Runs the picker until the user chooses a worktree or gives up.
 pub fn pick(repo: &Repo) -> Result<Outcome> {
     let mut screen = Screen::open()?;
     let mut picker = Picker::new(load(repo)?);
+    let mut status = StatusFeed::spawn(repo, &picker.items);
     let mut message: Option<String> = None;
 
     loop {
         draw(&mut screen.tty, &mut picker, message.as_deref())?;
 
-        let Event::Key(key) = event::read()? else {
+        let Some(key) = next_key(&mut picker, &mut status)? else {
+            // Status arrived rather than a key; show it.
             continue;
         };
         // Windows reports both press and release; act on press only.
@@ -245,13 +252,39 @@ pub fn pick(repo: &Repo) -> Result<Outcome> {
             Action::Backspace => {
                 if picker.backspace() == Backspace::Delete {
                     message = delete_selected(repo, &mut screen.tty, &mut picker)?;
+                    status = StatusFeed::spawn(repo, &picker.items);
                 }
             }
             Action::Insert(c) => picker.push_filter(c),
             Action::Delete => {
                 message = delete_selected(repo, &mut screen.tty, &mut picker)?;
+                status = StatusFeed::spawn(repo, &picker.items);
             }
             Action::None => {}
+        }
+    }
+}
+
+/// Waits for a key, redrawing when the status column fills in first.
+///
+/// Returns `None` when something other than a key needs the screen redrawn.
+fn next_key(picker: &mut Picker, status: &mut StatusFeed) -> Result<Option<KeyEvent>> {
+    loop {
+        if status.is_done() {
+            // Nothing left to wait for, so stop waking up to check.
+            return Ok(match event::read()? {
+                Event::Key(key) => Some(key),
+                _ => None,
+            });
+        }
+        if event::poll(STATUS_POLL)? {
+            return Ok(match event::read()? {
+                Event::Key(key) => Some(key),
+                _ => None,
+            });
+        }
+        if status.drain(&mut picker.items) {
+            return Ok(None);
         }
     }
 }
@@ -280,21 +313,51 @@ fn delete_selected(repo: &Repo, tty: &mut File, picker: &mut Picker) -> Result<O
         return Ok(None);
     };
 
+    // Removing can take a moment. Say so before starting, or the dialog just
+    // sits there after the answer and invites a second, harder press.
+    working(tty, &format!("Removing {}...", worktree.path.display()))?;
+
     let opts = RemoveOptions {
         // The dialog already spelled out the risk, so honour the answer.
         force: true,
         with_branch,
         quiet: true,
     };
-    match remove_worktree(repo, &worktree, opts) {
+    let outcome = match remove_worktree(repo, &worktree, opts) {
         Ok(()) => {
             picker.items = load(repo)?;
             picker.clamp();
             let extra = if with_branch { " and its branch" } else { "" };
-            Ok(Some(format!("removed `{label}`{extra}")))
+            Some(format!("removed `{label}`{extra}"))
         }
-        Err(e) => Ok(Some(format!("failed to remove `{label}`: {e}"))),
+        Err(e) => Some(format!("failed to remove `{label}`: {e}")),
+    };
+
+    // Anything typed while git was working was meant for the dialog, not for
+    // the list that is about to replace it.
+    discard_pending_input()?;
+    Ok(outcome)
+}
+
+/// Clears the screen and states what is happening, for work that blocks.
+fn working(tty: &mut File, what: &str) -> Result<()> {
+    let (_, rows) = terminal::size()?;
+    queue!(
+        tty,
+        terminal::Clear(terminal::ClearType::All),
+        cursor::MoveTo(0, 0),
+        style::Print(what),
+        cursor::MoveTo(0, rows.saturating_sub(1)),
+    )?;
+    tty.flush()?;
+    Ok(())
+}
+
+fn discard_pending_input() -> Result<()> {
+    while event::poll(std::time::Duration::from_millis(0))? {
+        let _ = event::read()?;
     }
+    Ok(())
 }
 
 /// Asks for confirmation. `None` means cancelled, `Some(with_branch)` confirms.
@@ -392,28 +455,118 @@ fn key_action(key: &KeyEvent) -> Action {
     }
 }
 
+/// Builds the rows without asking git anything slow.
+///
+/// The status column is left empty here and filled in by [`StatusFeed`]: it
+/// costs a `git status` per worktree, which is fast in a small repository and
+/// seconds across ten of them. The list has to be on screen before that.
 fn load(repo: &Repo) -> Result<Vec<Item>> {
     let worktrees = repo.worktrees()?;
     let Some(main) = worktrees.first().cloned() else {
         return Ok(Vec::new());
     };
-    // One call answers "is it merged?" for every worktree.
-    let merged = git::merged_branches(&repo.main).unwrap_or_default();
 
     Ok(worktrees
         .into_iter()
-        .map(|wt| {
-            let is_main = wt.path == main.path;
-            Item {
-                name: repo.display_name(&wt, &main),
-                head: wt.short_head(),
-                note: note(&wt, &merged, is_main),
-                is_current: repo.cwd.starts_with(&wt.path),
-                path: wt.path.clone(),
-                worktree: wt,
-            }
+        .map(|wt| Item {
+            name: repo.display_name(&wt, &main),
+            head: wt.short_head(),
+            note: String::new(),
+            is_main: wt.path == main.path,
+            is_current: repo.cwd.starts_with(&wt.path),
+            path: wt.path.clone(),
+            worktree: wt,
         })
         .collect())
+}
+
+/// Fills in the status column without blocking the list.
+///
+/// One background thread asks which branches are merged, then fans out a
+/// thread per worktree for the `git status` calls, so ten worktrees cost about
+/// as long as the slowest one rather than the sum of all ten.
+struct StatusFeed {
+    rx: Option<std::sync::mpsc::Receiver<Vec<(usize, String)>>>,
+}
+
+/// Everything a worker needs to describe one worktree, owned so it can move
+/// to another thread.
+struct Subject {
+    index: usize,
+    path: PathBuf,
+    branch: Option<String>,
+    is_main: bool,
+    flags: Vec<&'static str>,
+}
+
+impl StatusFeed {
+    fn spawn(repo: &Repo, items: &[Item]) -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let main = repo.main.clone();
+        let subjects: Vec<Subject> = items
+            .iter()
+            .enumerate()
+            .map(|(index, item)| Subject {
+                index,
+                path: item.path.clone(),
+                branch: item.worktree.branch.clone(),
+                is_main: item.is_main,
+                flags: flags(&item.worktree),
+            })
+            .collect();
+
+        std::thread::spawn(move || {
+            let merged = git::merged_branches(&main).unwrap_or_default();
+            let mut workers = Vec::new();
+            for subject in subjects {
+                let merged = merged.clone();
+                workers.push(std::thread::spawn(move || {
+                    let note = note(
+                        &subject.path,
+                        subject.branch.as_deref(),
+                        &merged,
+                        subject.is_main,
+                        &subject.flags,
+                    );
+                    (subject.index, note)
+                }));
+            }
+            let notes = workers.into_iter().filter_map(|w| w.join().ok()).collect();
+            // The receiver is gone once the picker closes; nothing to report.
+            let _ = tx.send(notes);
+        });
+
+        Self { rx: Some(rx) }
+    }
+
+    /// Applies whatever has arrived. `true` when the screen needs redrawing.
+    fn drain(&mut self, items: &mut [Item]) -> bool {
+        use std::sync::mpsc::TryRecvError;
+        let Some(rx) = &self.rx else {
+            return false;
+        };
+        match rx.try_recv() {
+            Ok(notes) => {
+                for (index, note) in notes {
+                    if let Some(item) = items.get_mut(index) {
+                        item.note = note;
+                    }
+                }
+                self.rx = None;
+                true
+            }
+            Err(TryRecvError::Empty) => false,
+            Err(TryRecvError::Disconnected) => {
+                self.rx = None;
+                false
+            }
+        }
+    }
+
+    /// Once nothing more is coming, the loop can go back to blocking on keys.
+    fn is_done(&self) -> bool {
+        self.rx.is_none()
+    }
 }
 
 /// What is worth knowing about a worktree before acting on it.
@@ -424,26 +577,27 @@ fn load(repo: &Repo) -> Result<Vec<Item>> {
 ///
 /// "merged" is skipped for the main worktree: a branch is always merged into
 /// itself, and the main worktree cannot be removed anyway.
-fn note(wt: &Worktree, merged: &[String], is_main: bool) -> String {
+fn note(
+    path: &std::path::Path,
+    branch: Option<&str>,
+    merged: &[String],
+    is_main: bool,
+    flags: &[&str],
+) -> String {
     let mut notes: Vec<String> = Vec::new();
 
-    if git::is_dirty(&wt.path).unwrap_or(false) {
+    if git::is_dirty(path).unwrap_or(false) {
         notes.push("dirty".to_string());
     }
     if !is_main {
-        if let Some(branch) = &wt.branch {
-            if merged.contains(branch) {
+        if let Some(branch) = branch {
+            if merged.iter().any(|b| b == branch) {
                 notes.push("merged".to_string());
             }
         }
     }
-    notes.extend(flags(wt).into_iter().map(str::to_string));
-
-    if notes.is_empty() {
-        String::new()
-    } else {
-        notes.join(", ")
-    }
+    notes.extend(flags.iter().map(|f| f.to_string()));
+    notes.join(", ")
 }
 
 fn flags(wt: &Worktree) -> Vec<&'static str> {
@@ -575,6 +729,11 @@ fn fit(line: &str, width: usize) -> String {
 
 const PLACEHOLDER: &str = "type to filter";
 
+/// Column labels. `HEAD` keeps git's own name for the short commit id.
+const NAME_HEADER: &str = "WORKTREE";
+const HEAD_HEADER: &str = "HEAD   ";
+const STATUS_HEADER: &str = "STATUS";
+
 /// What the right of the prompt says about the list below it.
 ///
 /// While filtering, this is the only place the size of the list is stated —
@@ -638,8 +797,8 @@ fn draw_prompt(tty: &mut File, picker: &Picker, matched: usize, cols: usize) -> 
 fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()> {
     let (cols, rows) = terminal::size()?;
     let cols = cols as usize;
-    // One line for the prompt, one for help, one for any message.
-    let reserved = if message.is_some() { 3 } else { 2 };
+    // The prompt, the header, the help line, and any message.
+    let reserved = if message.is_some() { 4 } else { 3 };
     let height = (rows as usize).saturating_sub(reserved);
     picker.scroll_into_view(height);
 
@@ -648,7 +807,9 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
         .iter()
         .map(|&i| picker.items[i].name.chars().count())
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        // Never narrower than the column it is labelled with.
+        .max(NAME_HEADER.len());
 
     queue!(
         tty,
@@ -656,6 +817,19 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
         cursor::MoveTo(0, 0),
     )?;
     draw_prompt(tty, picker, matches.len(), cols)?;
+
+    // A header row, dimmed so it reads as a label rather than another entry.
+    let header = fit(
+        &format!("  {NAME_HEADER:<name_width$}  {HEAD_HEADER}  {STATUS_HEADER}"),
+        cols,
+    );
+    queue!(
+        tty,
+        cursor::MoveTo(0, 1),
+        style::SetAttribute(style::Attribute::Dim),
+        style::Print(header),
+        style::SetAttribute(style::Attribute::Reset),
+    )?;
 
     for (row, &index) in matches.iter().skip(picker.offset).take(height).enumerate() {
         let item = &picker.items[index];
@@ -668,7 +842,7 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
             item.name, item.head, item.note
         );
         let line = fit(&line, cols);
-        queue!(tty, cursor::MoveTo(0, row as u16 + 1))?;
+        queue!(tty, cursor::MoveTo(0, row as u16 + 2))?;
         if is_cursor {
             // Reverse video rather than a colour: it stays readable on any
             // theme, and highlights the row edge to edge.
@@ -729,6 +903,7 @@ mod tests {
             head: "abc1234".to_string(),
             note: String::new(),
             is_current: false,
+            is_main: false,
             worktree: Worktree {
                 path: PathBuf::from(path),
                 head: None,
@@ -822,6 +997,21 @@ mod tests {
         // as `0 of 4` instead of an unexplained blank screen.
         assert_eq!(count_label("bill", 1, 4), "1 of 4");
         assert_eq!(count_label("zzz", 0, 4), "0 of 4");
+    }
+
+    #[test]
+    fn the_column_headers_are_ascii() {
+        for header in [NAME_HEADER, HEAD_HEADER, STATUS_HEADER] {
+            assert!(header.is_ascii(), "{header}");
+        }
+    }
+
+    #[test]
+    fn rows_start_without_a_status() {
+        // The list is drawn before git is asked anything slow, so the status
+        // column starts empty and fills in later.
+        let p = picker();
+        assert!(p.items.iter().all(|i| i.note.is_empty()));
     }
 
     #[test]

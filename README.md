@@ -17,8 +17,8 @@ Worktree ready.
 /home/me/worktrees/feature/auth
 
 $ gwt cd feature/auth     # with shell integration, this changes directory
-$ gwt list                # pick one interactively, ⏎ to move, ^d to delete
-▶ @             a1b2c3d  /home/me/repo
+$ gwt list                # pick one: enter to move, ctrl-d to delete
+  @             a1b2c3d  /home/me/repo
   feature/auth  a1b2c3d  /home/me/worktrees/feature/auth
 
 $ gwt list --plain        # the same as text, for reading or piping
@@ -193,21 +193,28 @@ A bare `gwt cd` goes to the main worktree, the way a bare `cd` takes you home.
 
 ```
 > bill
-▶ feature/billing  a1b2c3d  /home/me/worktrees/feature/billing
+  feature/billing  a1b2c3d  /home/me/worktrees/feature/billing   <- highlighted
 
-↑↓ move   ⏎ cd   ^d delete   esc cancel
+up/down move   enter cd   ctrl-d delete   esc cancel
 ```
+
+The selected row is highlighted across the full width; a `*` in the first
+column marks the worktree you are standing in.
 
 | Key | Action |
 | --- | --- |
 | <kbd>↑</kbd> <kbd>↓</kbd> (or <kbd>Ctrl</kbd>+<kbd>p</kbd> / <kbd>n</kbd>) | Move the cursor |
 | type anything | Filter by name or path |
 | <kbd>Enter</kbd> | Change into the selected worktree |
-| <kbd>Ctrl</kbd>+<kbd>d</kbd> or <kbd>Delete</kbd> | Remove it, after a confirmation dialog |
+| <kbd>Ctrl</kbd>+<kbd>d</kbd> | Remove it, after a confirmation dialog |
 | <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+<kbd>c</kbd> | Leave without moving |
 
-Deletion is bound to <kbd>Ctrl</kbd>+<kbd>d</kbd> as well because the key
-labelled "delete" on Mac keyboards sends Backspace, which edits the filter.
+Removal is <kbd>Ctrl</kbd>+<kbd>d</kbd> rather than the delete key because on
+Mac keyboards the key labelled "delete" sends Backspace, which the filter needs.
+The forward-delete key does work — <kbd>fn</kbd>+<kbd>delete</kbd> on a Mac.
+
+Everything the picker draws is plain ASCII, so it does not depend on the font
+having arrow or return glyphs.
 
 The confirmation dialog names what is at stake before you answer — uncommitted
 changes, and whether the branch is merged:

@@ -378,7 +378,22 @@ fn note(wt: &Worktree) -> String {
     }
 }
 
-const HELP: &str = "↑↓ move   ⏎ cd   ^d delete   esc cancel";
+/// Kept to plain ASCII on purpose.
+///
+/// Arrows and the return symbol land in ranges that terminals disagree about:
+/// some fonts have no glyph, and U+25B6 in particular has an emoji
+/// presentation that renders double width and shifts the whole row.
+const HELP: &str = "up/down move   enter cd   ctrl-d delete   esc cancel";
+
+/// Truncates to `width` and pads to it, so a highlighted row spans the line.
+fn fit(line: &str, width: usize) -> String {
+    let mut out: String = line.chars().take(width).collect();
+    let len = out.chars().count();
+    if len < width {
+        out.extend(std::iter::repeat_n(' ', width - len));
+    }
+    out
+}
 
 fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()> {
     let (cols, rows) = terminal::size()?;
@@ -405,11 +420,9 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
     for (row, &index) in matches.iter().skip(picker.offset).take(height).enumerate() {
         let item = &picker.items[index];
         let is_cursor = picker.offset + row == picker.cursor;
-        let marker = match (is_cursor, item.is_current) {
-            (true, _) => "▶",
-            (false, true) => "*",
-            _ => " ",
-        };
+        // The marker column says "you are standing here"; the cursor is the
+        // highlight, so the two never compete for the same character.
+        let marker = if item.is_current { "*" } else { " " };
         let line = format!(
             "{marker} {:<name_width$}  {}  {}{}",
             item.name,
@@ -417,8 +430,20 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
             item.path.display(),
             item.note
         );
-        let line: String = line.chars().take(cols).collect();
-        queue!(tty, cursor::MoveTo(0, row as u16 + 1), style::Print(line))?;
+        let line = fit(&line, cols);
+        queue!(tty, cursor::MoveTo(0, row as u16 + 1))?;
+        if is_cursor {
+            // Reverse video rather than a colour: it stays readable on any
+            // theme, and highlights the row edge to edge.
+            queue!(
+                tty,
+                style::SetAttribute(style::Attribute::Reverse),
+                style::Print(line),
+                style::SetAttribute(style::Attribute::Reset),
+            )?;
+        } else {
+            queue!(tty, style::Print(line))?;
+        }
     }
 
     if let Some(message) = message {
@@ -466,6 +491,34 @@ mod tests {
             item("feature/billing", "/wt/feature/billing"),
             item("hotfix", "/wt/hotfix"),
         ])
+    }
+
+    #[test]
+    fn the_interface_is_ascii_only() {
+        // Non-ASCII risks missing glyphs, and emoji-presentation characters
+        // render double width and break the column alignment.
+        assert!(HELP.is_ascii(), "{HELP}");
+        for label in [
+            "Remove this worktree?",
+            "  ! uncommitted changes will be lost",
+            "[y] remove worktree   [b] remove worktree and branch   [n] cancel",
+        ] {
+            assert!(label.is_ascii(), "{label}");
+        }
+    }
+
+    #[test]
+    fn the_help_spells_out_the_modifier_key() {
+        // `^d` reads as noise to anyone who has not seen the convention.
+        assert!(HELP.contains("ctrl-d"), "{HELP}");
+        assert!(!HELP.contains("^d"), "{HELP}");
+    }
+
+    #[test]
+    fn rows_are_padded_so_a_highlight_covers_the_line() {
+        assert_eq!(fit("abc", 6), "abc   ");
+        assert_eq!(fit("abcdefgh", 4), "abcd");
+        assert_eq!(fit("", 3), "   ");
     }
 
     #[test]

@@ -17,7 +17,7 @@ pub fn run(args: ListArgs) -> Result<()> {
     if !args.paths && !args.plain && tui::should_pick(&repo)? {
         return match tui::pick(&repo)? {
             Outcome::Cancelled => Ok(()),
-            Outcome::Selected(path) => cd_target::request(&path),
+            Outcome::Selected(path) => cd_target::request_picked(&path),
         };
     }
 

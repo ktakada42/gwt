@@ -22,6 +22,25 @@ pub fn request(path: &Path) -> Result<()> {
     write_request(std::env::var_os(CD_FILE_VAR), path)
 }
 
+/// Asks the shell to move into a worktree the user just picked from the list.
+///
+/// Printing a path is a fine answer for `gwt cd feature/x`, which someone may
+/// have wrapped in a command substitution. It is a dead end after the picker:
+/// the user chose a destination and nothing happened. That almost always means
+/// the shell function predates the hand-off file, so say so.
+pub fn request_picked(path: &Path) -> Result<()> {
+    let file = std::env::var_os(CD_FILE_VAR);
+    let integrated = file.as_ref().is_some_and(|f| !f.is_empty());
+    write_request(file, path)?;
+    if !integrated {
+        eprintln!(
+            "gwt: could not change directory — the shell integration is missing or out of date."
+        );
+        eprintln!("     Start a new shell, or reload it with: eval \"$(gwt shell-init zsh)\"");
+    }
+    Ok(())
+}
+
 /// Writes the request to `file`, falling back to stdout when there is none.
 ///
 /// Without the shell integration nobody is reading the file, so the path goes

@@ -1,13 +1,26 @@
 //! `gwt list` — show every worktree of the repository.
+//!
+//! In a terminal this is the interactive picker; `--plain` and `--paths` are
+//! the ways to ask for text a script can read.
 
 use anyhow::Result;
 
+use crate::cd_target;
 use crate::cli::ListArgs;
 use crate::git::Worktree;
 use crate::repo::Repo;
+use crate::tui::{self, Outcome};
 
 pub fn run(args: ListArgs) -> Result<()> {
     let repo = Repo::discover()?;
+
+    if !args.paths && !args.plain && tui::should_pick(&repo)? {
+        return match tui::pick(&repo)? {
+            Outcome::Cancelled => Ok(()),
+            Outcome::Selected(path) => cd_target::request(&path),
+        };
+    }
+
     let worktrees = repo.worktrees()?;
 
     if args.paths {

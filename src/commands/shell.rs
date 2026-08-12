@@ -7,34 +7,49 @@ use crate::cli::{Shell, ShellArgs};
 /// Environment variable the completion stubs use to ask gwt for candidates.
 pub const COMPLETE_VAR: &str = "COMPLETE";
 
-/// Wrapper function that turns `gwt cd` into a real directory change.
+/// Wrapper function that turns a chosen worktree into a real directory change.
 ///
-/// POSIX shells run each command in a child process, so the binary itself can
-/// only print the path; the function below consumes it.
+/// A child process cannot move its parent shell, so `gwt` writes the directory
+/// it wants into the file named by `GWT_CD_FILE` and the function below reads
+/// it. Going through a file rather than stdout leaves `gwt list` free to print
+/// its table, and keeps `gwt list --paths | peco` streaming as before.
+///
+/// Only the subcommands that can ask for a `cd` pay for the temporary file.
 const POSIX_FUNCTION: &str = r#"
 gwt() {
-    if [ "$1" = "cd" ]; then
-        shift
-        __gwt_target="$(command gwt cd "$@")" || return $?
-        if [ -n "$__gwt_target" ]; then
-            cd "$__gwt_target" || return $?
-        fi
-        unset __gwt_target
-    else
-        command gwt "$@"
-    fi
+    case "${1-}" in
+        cd|list|ls)
+            __gwt_file="$(mktemp "${TMPDIR:-/tmp}/gwt-cd.XXXXXX")" || return 1
+            GWT_CD_FILE="$__gwt_file" command gwt "$@"
+            __gwt_status=$?
+            __gwt_target="$(cat "$__gwt_file" 2>/dev/null)"
+            rm -f "$__gwt_file"
+            unset __gwt_file
+            if [ "$__gwt_status" -eq 0 ] && [ -n "$__gwt_target" ]; then
+                cd "$__gwt_target" || { unset __gwt_target; return 1; }
+            fi
+            unset __gwt_target
+            return "$__gwt_status"
+            ;;
+        *)
+            command gwt "$@"
+            ;;
+    esac
 }
 "#;
 
 const FISH_FUNCTION: &str = r#"
 function gwt --wraps gwt --description 'git worktree manager'
-    if test (count $argv) -ge 1; and test "$argv[1]" = cd
-        # Drop the subcommand, so `gwt cd` with no target still works.
-        set -e argv[1]
-        set -l __gwt_target (command gwt cd $argv); or return $status
-        if test -n "$__gwt_target"
+    if test (count $argv) -ge 1; and contains -- "$argv[1]" cd list ls
+        set -l __gwt_file (mktemp "$TMPDIR"/gwt-cd.XXXXXX 2>/dev/null; or mktemp /tmp/gwt-cd.XXXXXX)
+        GWT_CD_FILE=$__gwt_file command gwt $argv
+        set -l __gwt_status $status
+        set -l __gwt_target (cat $__gwt_file 2>/dev/null)
+        rm -f $__gwt_file
+        if test $__gwt_status -eq 0; and test -n "$__gwt_target"
             cd $__gwt_target
         end
+        return $__gwt_status
     else
         command gwt $argv
     end
@@ -91,9 +106,21 @@ mod tests {
     }
 
     #[test]
-    fn wrapper_intercepts_cd_only() {
-        assert!(POSIX_FUNCTION.contains(r#"if [ "$1" = "cd" ]"#));
+    fn wrapper_only_intercepts_the_subcommands_that_can_move_you() {
+        assert!(POSIX_FUNCTION.contains("cd|list|ls)"));
+        assert!(FISH_FUNCTION.contains(r#"contains -- "$argv[1]" cd list ls"#));
+        // Everything else must reach the binary untouched.
         assert!(POSIX_FUNCTION.contains(r#"command gwt "$@""#));
         assert!(FISH_FUNCTION.contains("command gwt $argv"));
+    }
+
+    #[test]
+    fn wrapper_hands_the_directory_over_through_a_file() {
+        for script in [POSIX_FUNCTION, FISH_FUNCTION] {
+            assert!(script.contains(crate::cd_target::CD_FILE_VAR), "{script}");
+            assert!(script.contains("mktemp"), "{script}");
+            // The file must be cleaned up whether or not a cd happens.
+            assert!(script.contains("rm -f"), "{script}");
+        }
     }
 }

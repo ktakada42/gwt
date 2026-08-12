@@ -25,9 +25,6 @@ pub enum Outcome {
 }
 
 /// `true` when a terminal is available to draw on.
-///
-/// Redirected output alone does not disqualify us: the shell integration always
-/// captures stdout, yet `/dev/tty` is still there.
 pub fn is_available() -> bool {
     open_tty().is_ok()
 }
@@ -37,6 +34,18 @@ fn open_tty() -> Result<File> {
         .write(true)
         .open("/dev/tty")
         .context("no terminal available")
+}
+
+/// Whether a command should open the picker instead of printing.
+///
+/// Without a terminal — a script, a pipeline, CI — the caller keeps its plain
+/// behaviour. A repository whose only worktree is the main one has nothing
+/// worth picking from either.
+pub fn should_pick(repo: &Repo) -> Result<bool> {
+    if !is_available() {
+        return Ok(false);
+    }
+    Ok(repo.worktrees()?.len() > 1)
 }
 
 /// One row of the list.

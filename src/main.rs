@@ -1,3 +1,4 @@
+mod cd_target;
 mod cli;
 mod commands;
 mod completion;

@@ -17,7 +17,11 @@ Worktree ready.
 /home/me/worktrees/feature/auth
 
 $ gwt cd feature/auth     # with shell integration, this changes directory
-$ gwt list
+$ gwt list                # pick one interactively, ⏎ to move, ^d to delete
+▶ @             a1b2c3d  /home/me/repo
+  feature/auth  a1b2c3d  /home/me/worktrees/feature/auth
+
+$ gwt list --plain        # the same as text, for reading or piping
 * @             a1b2c3d  /home/me/repo
   feature/auth  a1b2c3d  /home/me/worktrees/feature/auth
 
@@ -38,8 +42,9 @@ $ gwt remove feature/auth --with-branch
   out, a remote-only branch is tracked, and anything else becomes a new branch.
 - **Hooks.** Copy files, create symlinks and run commands before and after the
   worktree is created, configured per repository in `.gwt.toml`.
-- **List and navigate.** `gwt list` shows every worktree; `gwt cd <name>` moves
-  you into one, with tab completion.
+- **List and navigate.** `gwt list` opens an interactive list — move, filter,
+  press <kbd>Enter</kbd> to go there or <kbd>Ctrl</kbd>+<kbd>d</kbd> to delete.
+  `gwt cd <name>` jumps straight to one, with tab completion.
 
 ## Installation
 
@@ -167,7 +172,7 @@ type. Outside a repository nothing is offered instead of an error.
 | Command | What it does |
 | --- | --- |
 | `gwt add <branch>` | Create a worktree for `<branch>`, creating the branch if needed |
-| `gwt list` (`ls`) | List worktrees; the current one is marked with `*` |
+| `gwt list` (`ls`) | Pick a worktree interactively; `--plain` or `--paths` for text |
 | `gwt cd [<name>]` | Move into a worktree; with no argument, pick one interactively |
 | `gwt remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
 | `gwt init` | Write a `.gwt.toml` template |
@@ -180,7 +185,7 @@ when they are unambiguous.
 
 ### Picking a worktree interactively
 
-Run `gwt cd` with no argument and it opens a list you can move through:
+`gwt list`, and `gwt cd` with no argument, open a list you can move through:
 
 ```
 > bill
@@ -217,10 +222,17 @@ Remove this worktree?
 The main worktree and the one you are standing in are refused outright, same as
 `gwt remove`.
 
-Two cases keep the old behaviour of resolving to the main worktree instead of
-opening the picker: when there is no terminal to draw on (a script, a pipe, CI)
-and when the repository has no worktree other than the main one. `gwt cd @`
-always goes straight there.
+Two cases skip the picker entirely: when there is no terminal to draw on (a
+script, a pipe, CI) and when the repository has no worktree other than the main
+one. `gwt list` then prints its table and `gwt cd` resolves to the main
+worktree, exactly as before — so existing scripts keep working. Ask for text in
+a terminal with `gwt list --plain`, or `gwt list --paths` for one path per line.
+`gwt cd @` always goes straight to the main worktree.
+
+The picker hands the directory to the shell function through a temporary file
+named by `GWT_CD_FILE`, which leaves stdout free for `gwt list` to print on.
+That means `gwt shell-init` changed in v1.1.0: after upgrading, start a new
+shell (or re-source your rc file) before `gwt list` can move you.
 
 ### `gwt add`
 

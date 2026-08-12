@@ -91,6 +91,10 @@ pub struct ListArgs {
     /// Print only worktree paths, one per line
     #[arg(long)]
     pub paths: bool,
+
+    /// Print the table instead of opening the interactive picker
+    #[arg(long, conflicts_with = "paths")]
+    pub plain: bool,
 }
 
 #[derive(Debug, clap::Args)]

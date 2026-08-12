@@ -339,6 +339,52 @@ fn list_shows_every_worktree() {
     let paths = fx.gwt_ok(["list", "--paths"]);
     assert_eq!(paths.lines().count(), 2);
     assert!(paths.lines().any(|l| l == fx.repo.to_str().unwrap()));
+
+    // `--plain` asks for the same table the picker would have replaced.
+    assert_eq!(fx.gwt_ok(["list", "--plain"]), listing);
+}
+
+#[test]
+fn a_chosen_directory_is_handed_over_through_a_file() {
+    let fx = Fixture::new();
+    let created = fx.gwt_ok(["add", "feature/handoff"]);
+    let handoff = fx.root.join("cd-request");
+
+    let out = Command::new(BIN)
+        .current_dir(&fx.repo)
+        .env("GWT_CD_FILE", &handoff)
+        .args(["cd", "feature/handoff"])
+        .output()
+        .expect("failed to run gwt");
+    assert!(out.status.success());
+
+    // The path goes to the file, and stdout stays empty so that a command
+    // like `gwt list` can keep printing its own output.
+    assert_eq!(
+        std::fs::read_to_string(&handoff).unwrap().trim_end(),
+        created
+    );
+    assert_eq!(String::from_utf8_lossy(&out.stdout), "");
+}
+
+#[test]
+fn list_stays_plain_without_a_terminal() {
+    let fx = Fixture::new();
+    fx.gwt_ok(["add", "feature/one"]);
+    let handoff = fx.root.join("cd-request");
+
+    // Even with the hand-off file offered, no terminal means no picker: the
+    // table is printed and nothing asks the shell to move.
+    let out = Command::new(BIN)
+        .current_dir(&fx.repo)
+        .env("GWT_CD_FILE", &handoff)
+        .arg("list")
+        .output()
+        .expect("failed to run gwt");
+
+    assert!(out.status.success());
+    assert!(String::from_utf8_lossy(&out.stdout).contains("feature/one"));
+    assert!(!handoff.exists());
 }
 
 #[test]

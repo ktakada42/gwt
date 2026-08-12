@@ -415,6 +415,63 @@ fn list_stays_plain_without_a_terminal() {
 }
 
 #[test]
+fn an_ambient_git_dir_does_not_redirect_gwt() {
+    let fx = Fixture::new();
+    fx.gwt_ok(["add", "feature/here"]);
+
+    // A second repository, standing in for the one a git hook would name.
+    let elsewhere = fx.root.join("elsewhere");
+    git(&fx.root, ["init", "--initial-branch=main", "elsewhere"]);
+
+    // git reads GIT_DIR before it looks at the working directory, so without
+    // care this asks about `elsewhere` while standing in `repo`.
+    let out = command(BIN)
+        .current_dir(&fx.repo)
+        .env("GIT_DIR", elsewhere.join(".git"))
+        .env("GIT_WORK_TREE", &elsewhere)
+        .args(["list", "--paths"])
+        .output()
+        .expect("failed to run gwt");
+
+    assert!(
+        out.status.success(),
+        "gwt failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let paths = String::from_utf8_lossy(&out.stdout);
+    assert!(paths.contains("feature/here"), "{paths}");
+    assert!(!paths.contains("elsewhere"), "{paths}");
+}
+
+#[test]
+fn a_hook_does_not_inherit_a_pointer_to_another_repository() {
+    let fx = Fixture::new();
+    let elsewhere = fx.root.join("elsewhere");
+    git(&fx.root, ["init", "--initial-branch=main", "elsewhere"]);
+    fx.write_config(
+        "[[hooks.post_create]]\ntype = \"command\"\ncommand = \"git rev-parse --show-toplevel > where\"\n",
+    );
+
+    let out = command(BIN)
+        .current_dir(&fx.repo)
+        .env("GIT_DIR", elsewhere.join(".git"))
+        .env("GIT_WORK_TREE", &elsewhere)
+        .args(["add", "feature/hooked"])
+        .output()
+        .expect("failed to run gwt");
+    assert!(
+        out.status.success(),
+        "gwt failed:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    // The hook ran git inside the new worktree, not in `elsewhere`.
+    let created = fx.worktrees_dir().join("feature/hooked");
+    let where_it_ran = std::fs::read_to_string(created.join("where")).unwrap();
+    assert_eq!(where_it_ran.trim(), created.to_str().unwrap());
+}
+
+#[test]
 fn cd_resolves_names() {
     let fx = Fixture::new();
     let created = fx.gwt_ok(["add", "feature/two"]);

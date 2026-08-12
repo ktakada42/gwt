@@ -137,10 +137,17 @@ fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext) -> Result<()> {
 
 /// Commands always run through `/bin/sh` rather than `$SHELL`, so that a hook
 /// behaves the same for everyone who checks out the repository.
+///
+/// A hook runs *in* the new worktree, so it starts without the variables that
+/// would point git somewhere else — otherwise `git submodule update` in a
+/// post_create hook would quietly operate on whatever repository invoked gwt.
 #[cfg(unix)]
 fn shell_command(command: &str) -> Command {
     let mut cmd = Command::new("/bin/sh");
     cmd.arg("-c").arg(command);
+    for var in crate::git::REPO_ENV {
+        cmd.env_remove(var);
+    }
     cmd
 }
 

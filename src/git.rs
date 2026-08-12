@@ -39,14 +39,44 @@ impl Worktree {
     }
 }
 
+/// Environment variables that pin git to a particular repository or index.
+///
+/// gwt always means "the repository containing this directory", so it works
+/// that out from the path it was handed, not from whatever a caller exported.
+/// The case that matters is being run from a git hook: git gives its hooks a
+/// `GIT_DIR`, and git reads that before it looks at the working directory, so
+/// without this every call would land on the hook's repository instead.
+///
+/// Deliberately absent are `GIT_CONFIG_GLOBAL` and its relatives. Which
+/// repository to act on is gwt's business; how git is configured is the
+/// user's.
+pub const REPO_ENV: &[&str] = &[
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_PREFIX",
+];
+
+/// A `git` invocation rooted at `dir`, deaf to any ambient repository.
+fn git_in(dir: &Path) -> Command {
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir);
+    for var in REPO_ENV {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
 /// Runs git in `dir` and returns trimmed stdout, failing on a non-zero exit.
 pub fn output<I, S>(dir: &Path, args: I) -> Result<String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let out = Command::new("git")
-        .current_dir(dir)
+    let out = git_in(dir)
         .args(args)
         .output()
         .context("failed to run `git` (is it installed and on PATH?)")?;
@@ -68,8 +98,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    let out = Command::new("git")
-        .current_dir(dir)
+    let out = git_in(dir)
         .args(args)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -92,8 +121,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Command::new("git")
-        .current_dir(dir)
+    git_in(dir)
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())

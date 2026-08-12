@@ -195,7 +195,7 @@ A bare `gwt cd` goes to the main worktree, the way a bare `cd` takes you home.
 > bill
   feature/billing  a1b2c3d  /home/me/worktrees/feature/billing   <- highlighted
 
-up/down move   enter cd   ctrl-d delete   esc cancel
+up/down move   enter cd   ctrl-d or bksp delete   esc cancel
 ```
 
 The selected row is highlighted across the full width; a `*` in the first
@@ -206,12 +206,17 @@ column marks the worktree you are standing in.
 | <kbd>↑</kbd> <kbd>↓</kbd> (or <kbd>Ctrl</kbd>+<kbd>p</kbd> / <kbd>n</kbd>) | Move the cursor |
 | type anything | Filter by name or path |
 | <kbd>Enter</kbd> | Change into the selected worktree |
-| <kbd>Ctrl</kbd>+<kbd>d</kbd> | Remove it, after a confirmation dialog |
+| <kbd>Backspace</kbd> | Erase the filter, or remove the worktree once it is empty |
+| <kbd>Ctrl</kbd>+<kbd>d</kbd> or <kbd>Delete</kbd> | Remove the worktree, whatever you have typed |
 | <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+<kbd>c</kbd> | Leave without moving |
 
-Removal is <kbd>Ctrl</kbd>+<kbd>d</kbd> rather than the delete key because on
-Mac keyboards the key labelled "delete" sends Backspace, which the filter needs.
-The forward-delete key does work — <kbd>fn</kbd>+<kbd>delete</kbd> on a Mac.
+<kbd>Backspace</kbd> does double duty so that the key labelled "delete" on Mac
+keyboards — which sends Backspace, not Delete — can remove a worktree. The
+bottom line always says which of the two it will do right now.
+
+Holding <kbd>Backspace</kbd> to clear what you typed cannot run past the empty
+filter into the delete dialog: the press at that boundary is swallowed, so
+reaching the dialog always takes a deliberate keystroke.
 
 Everything the picker draws is plain ASCII, so it does not depend on the font
 having arrow or return glyphs.

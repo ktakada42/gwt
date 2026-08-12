@@ -58,6 +58,17 @@ struct Item {
     worktree: Worktree,
 }
 
+/// What a Backspace did, since the key has two jobs.
+#[derive(Debug, PartialEq, Eq)]
+enum Backspace {
+    /// Removed a character from the filter.
+    ErasedFilter,
+    /// Swallowed, because the filter had only just been emptied.
+    Absorbed,
+    /// Asked to remove the selected worktree.
+    Delete,
+}
+
 /// List state: which rows exist, what was typed, where the cursor is.
 struct Picker {
     items: Vec<Item>,
@@ -66,6 +77,13 @@ struct Picker {
     cursor: usize,
     /// First visible row, for lists taller than the terminal.
     offset: usize,
+    /// Set while Backspace is being used to erase the filter.
+    ///
+    /// Holding the key to clear what you typed sends a burst of Backspaces;
+    /// without this, the burst would run past the empty filter and open the
+    /// delete dialog. One press is swallowed at the boundary, so reaching the
+    /// dialog always takes a deliberate keystroke.
+    erasing: bool,
 }
 
 impl Picker {
@@ -75,7 +93,27 @@ impl Picker {
             filter: String::new(),
             cursor: 0,
             offset: 0,
+            erasing: false,
         }
+    }
+
+    /// Resolves what Backspace means right now.
+    fn backspace(&mut self) -> Backspace {
+        if !self.filter.is_empty() {
+            self.pop_filter();
+            self.erasing = true;
+            return Backspace::ErasedFilter;
+        }
+        if self.erasing {
+            self.erasing = false;
+            return Backspace::Absorbed;
+        }
+        Backspace::Delete
+    }
+
+    /// Any other key ends the erasing streak.
+    fn note_other_key(&mut self) {
+        self.erasing = false;
     }
 
     /// Indices of the items matching the filter.
@@ -190,7 +228,12 @@ pub fn pick(repo: &Repo) -> Result<Outcome> {
         }
         message = None;
 
-        match key_action(&key) {
+        let action = key_action(&key);
+        if action != Action::Backspace {
+            picker.note_other_key();
+        }
+
+        match action {
             Action::Cancel => return Ok(Outcome::Cancelled),
             Action::Confirm => {
                 if let Some(item) = picker.selected() {
@@ -199,7 +242,11 @@ pub fn pick(repo: &Repo) -> Result<Outcome> {
             }
             Action::Down => picker.move_down(),
             Action::Up => picker.move_up(),
-            Action::Backspace => picker.pop_filter(),
+            Action::Backspace => {
+                if picker.backspace() == Backspace::Delete {
+                    message = delete_selected(repo, &mut screen.tty, &mut picker)?;
+                }
+            }
             Action::Insert(c) => picker.push_filter(c),
             Action::Delete => {
                 message = delete_selected(repo, &mut screen.tty, &mut picker)?;
@@ -309,6 +356,7 @@ fn confirm(tty: &mut File, worktree: &Worktree, dirty: bool, merged: bool) -> Re
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum Action {
     Confirm,
     Cancel,
@@ -378,12 +426,24 @@ fn note(wt: &Worktree) -> String {
     }
 }
 
-/// Kept to plain ASCII on purpose.
+/// Help for when Backspace would remove a worktree.
 ///
-/// Arrows and the return symbol land in ranges that terminals disagree about:
-/// some fonts have no glyph, and U+25B6 in particular has an emoji
+/// Kept to plain ASCII on purpose: arrows and the return symbol land in ranges
+/// that terminals disagree about, and U+25B6 in particular has an emoji
 /// presentation that renders double width and shifts the whole row.
-const HELP: &str = "up/down move   enter cd   ctrl-d delete   esc cancel";
+const HELP_IDLE: &str = "up/down move   enter cd   ctrl-d or bksp delete   esc cancel";
+
+/// Help for when Backspace would edit the filter instead.
+const HELP_FILTERING: &str = "up/down move   enter cd   ctrl-d delete   bksp erase   esc cancel";
+
+/// The help line matching what Backspace does right now.
+fn help_for(picker: &Picker) -> &'static str {
+    if picker.filter.is_empty() {
+        HELP_IDLE
+    } else {
+        HELP_FILTERING
+    }
+}
 
 /// Truncates to `width` and pads to it, so a highlighted row spans the line.
 fn fit(line: &str, width: usize) -> String {
@@ -456,7 +516,7 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
     queue!(
         tty,
         cursor::MoveTo(0, rows.saturating_sub(1)),
-        style::Print(HELP),
+        style::Print(help_for(picker).chars().take(cols).collect::<String>()),
     )?;
     tty.flush()?;
     Ok(())
@@ -497,8 +557,9 @@ mod tests {
     fn the_interface_is_ascii_only() {
         // Non-ASCII risks missing glyphs, and emoji-presentation characters
         // render double width and break the column alignment.
-        assert!(HELP.is_ascii(), "{HELP}");
         for label in [
+            HELP_IDLE,
+            HELP_FILTERING,
             "Remove this worktree?",
             "  ! uncommitted changes will be lost",
             "[y] remove worktree   [b] remove worktree and branch   [n] cancel",
@@ -510,8 +571,63 @@ mod tests {
     #[test]
     fn the_help_spells_out_the_modifier_key() {
         // `^d` reads as noise to anyone who has not seen the convention.
-        assert!(HELP.contains("ctrl-d"), "{HELP}");
-        assert!(!HELP.contains("^d"), "{HELP}");
+        for help in [HELP_IDLE, HELP_FILTERING] {
+            assert!(help.contains("ctrl-d"), "{help}");
+            assert!(!help.contains("^d"), "{help}");
+        }
+    }
+
+    #[test]
+    fn the_help_says_what_backspace_will_do() {
+        let mut p = picker();
+        assert_eq!(help_for(&p), HELP_IDLE);
+        assert!(help_for(&p).contains("bksp delete"), "{}", help_for(&p));
+
+        p.push_filter('a');
+        assert_eq!(help_for(&p), HELP_FILTERING);
+        assert!(help_for(&p).contains("bksp erase"), "{}", help_for(&p));
+    }
+
+    #[test]
+    fn backspace_removes_a_worktree_when_nothing_is_typed() {
+        let mut p = picker();
+        assert_eq!(p.backspace(), Backspace::Delete);
+    }
+
+    #[test]
+    fn backspace_edits_the_filter_while_there_is_one() {
+        let mut p = picker();
+        p.push_filter('a');
+        p.push_filter('u');
+        assert_eq!(p.backspace(), Backspace::ErasedFilter);
+        assert_eq!(p.backspace(), Backspace::ErasedFilter);
+        assert_eq!(p.filter, "");
+    }
+
+    #[test]
+    fn holding_backspace_to_clear_cannot_run_into_a_deletion() {
+        let mut p = picker();
+        for c in "auth".chars() {
+            p.push_filter(c);
+        }
+        // The burst that empties the filter.
+        for _ in 0..4 {
+            assert_eq!(p.backspace(), Backspace::ErasedFilter);
+        }
+        // The overshoot from key repeat is swallowed instead of deleting.
+        assert_eq!(p.backspace(), Backspace::Absorbed);
+        // A deliberate press after that still works.
+        assert_eq!(p.backspace(), Backspace::Delete);
+    }
+
+    #[test]
+    fn any_other_key_ends_the_erasing_streak() {
+        let mut p = picker();
+        p.push_filter('a');
+        assert_eq!(p.backspace(), Backspace::ErasedFilter);
+        // Moving the cursor means the next Backspace is a fresh intent.
+        p.note_other_key();
+        assert_eq!(p.backspace(), Backspace::Delete);
     }
 
     #[test]

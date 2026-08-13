@@ -13,26 +13,22 @@ name, then a path for it, then you copy over your `.env`, then you reinstall
 dependencies, and finally you `cd` into a directory you have to remember.
 `gwt` takes care of all of that.
 
-```console
-$ gwt add feature/auth
-Created branch `feature/auth` from `HEAD`
-Running post_create hooks...
-  [1/2] copy .env -> .env
-  [2/2] npm install
-Worktree ready.
-/home/me/worktrees/feature/auth
+**`gwt add <branch>`** — a branch name is all it takes. The branch is created
+when it does not exist, the worktree lands at a path derived from its name, and
+the hooks in `.gwt.toml` bring the `.env` and the dependencies along.
 
-$ gwt cd feature/auth     # with shell integration, this changes directory
-$ gwt list                # pick one: enter to move, ctrl-d to delete
-  @             a1b2c3d  /home/me/repo
-  feature/auth  a1b2c3d  /home/me/worktrees/feature/auth
+![gwt add feature/auth creates the branch and the worktree, copies .env, links node_modules, prints the path, and gwt cd moves the shell into it](docs/demo/add.gif)
 
-$ gwt list --plain        # the same as text, for reading or piping
-* @             a1b2c3d  /home/me/repo
-  feature/auth  a1b2c3d  /home/me/worktrees/feature/auth
+**`gwt list`** — the picker. Type to filter, <kbd>Enter</kbd> to change into the
+worktree, <kbd>Ctrl</kbd>+<kbd>d</kbd> to remove it. `--plain` prints the table
+instead, for reading or piping.
 
-$ gwt remove feature/auth --with-branch
-```
+![gwt list opens a table of four worktrees with their HEAD and status, typing bil filters it to feature/billing, and Enter changes the shell into that worktree](docs/demo/list.gif)
+
+**`gwt remove <name>`** — the worktree, and with `--with-branch` the branch it
+was for, as long as it is merged.
+
+![gwt list --plain shows four worktrees, gwt remove feature/billing --with-branch removes the worktree and deletes the branch, and the next listing is down to three](docs/demo/remove.gif)
 
 > [!NOTE]
 > `gwt` is inspired by [satococoa/wtp](https://github.com/satococoa/wtp), a Go

@@ -159,9 +159,8 @@ when they are unambiguous. Every command has a man page (`man gwx-add`).
 
 | | |
 | --- | --- |
-| [Commands](https://github.com/ktakada42/gwx/blob/main/docs/commands.md) | Every command and flag, and how names are resolved |
+| [Commands](https://github.com/ktakada42/gwx/blob/main/docs/commands.md) | Every command and flag, how names are resolved, and what `gwx clean` judges safe |
 | [The picker](https://github.com/ktakada42/gwx/blob/main/docs/picker.md) | Keys, the delete dialog, and when it does not open |
-| [`gwx clean`](https://github.com/ktakada42/gwx/blob/main/docs/clean.md) | What makes a worktree safe to remove, and the multi-select list |
 | [Configuration](https://github.com/ktakada42/gwx/blob/main/docs/configuration.md) | `.gwx.toml`, the user-wide config, and `base_dir` |
 | [Hooks](https://github.com/ktakada42/gwx/blob/main/docs/hooks.md) | Phases, types, environment, and what a failure leaves behind |
 

@@ -52,6 +52,81 @@ command = "rm -rf \"$GWX_MAIN_WORKTREE/.cache/$GWX_WORKTREE_NAME\""
 
 What the hooks themselves can do is in [Hooks](hooks.md).
 
+## A worked example
+
+The keys above, as one repository would actually use them — a web application
+with a database, secrets git does not track, and a `node_modules` too large to
+copy per branch:
+
+```toml
+version = "1"
+
+[defaults]
+base_dir = "../worktrees"
+
+# Start from refs that are not a week old, so `gwx add release/2.1` finds the
+# branch a colleague pushed this morning. Runs in the main worktree, where the
+# remotes are configured.
+[[hooks.pre_create]]
+type = "command"
+command = "git fetch --prune"
+
+# The secrets git does not track. Without this the first `npm run dev` in a new
+# worktree fails on a missing DATABASE_URL, which is a confusing way to find
+# out you are somewhere else.
+[[hooks.post_create]]
+type = "copy"
+from = ".env"
+
+[[hooks.post_create]]
+type = "copy"
+from = ".env.local"
+
+# One node_modules for every worktree. On Linux this is what keeps a 400MB
+# directory from being copied per branch; on macOS a `copy` clones and costs
+# about the same, so prefer that if the worktrees install different versions.
+[[hooks.post_create]]
+type = "symlink"
+from = "node_modules"
+
+# Bring the new checkout up to the branch's own lockfile. It is a no-op when
+# the dependencies match the shared node_modules, and the whole point when the
+# branch is the one that changed them.
+[[hooks.post_create]]
+type = "command"
+command = "npm install --no-audit --no-fund"
+env = { NODE_ENV = "development" }
+
+# A database per worktree, named after the branch, so migrations on one branch
+# cannot break the review you are doing on another. The slashes in a branch
+# name are not allowed in a compose project name, hence the `tr`.
+[[hooks.post_create]]
+type = "command"
+command = "docker compose -p \"gwx-$(echo \"$GWX_WORKTREE_NAME\" | tr / -)\" up -d db"
+
+# Stop what the worktree started. This runs inside the worktree while it still
+# exists, which is what `docker compose` needs to find its compose file — and
+# a failure here calls the removal off, so the containers are never orphaned
+# by a directory disappearing from under them.
+[[hooks.pre_remove]]
+type = "command"
+command = "docker compose -p \"gwx-$(echo \"$GWX_WORKTREE_NAME\" | tr / -)\" down --volumes"
+
+# Whatever was keyed to the worktree's path rather than living inside it. The
+# directory is gone by now, so this runs in the main worktree and is handed the
+# path that was removed.
+[[hooks.post_remove]]
+type = "command"
+command = "rm -rf \"$GWX_MAIN_WORKTREE/.cache/playwright/$GWX_WORKTREE_NAME\""
+```
+
+Two things in there are worth stealing. The database is named after the
+worktree, so a migration on one branch cannot break the review running on
+another; and the hook that starts it has a `pre_remove` that stops it, which
+is the pairing that keeps containers from outliving the directory they were
+started for.
+
+
 ## `base_dir`
 
 With `base_dir = "../worktrees"`, a repository at `/home/me/repo` puts the

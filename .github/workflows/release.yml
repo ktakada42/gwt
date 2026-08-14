@@ -102,6 +102,37 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  publish-crate:
+    name: Publish to crates.io
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      # Trusted publishing: crates.io trades this for a token that lives for
+      # the length of the job, so the repository holds no publishing secret.
+      # The crate has to name this repository and workflow on crates.io first.
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+
+      # The tag carries the version; Cargo.toml is still on the previous one,
+      # because the commit that bumps it is made after a release, not before.
+      # Publishing the tagged tree with the version corrected is closer to
+      # what was released than publishing whatever main has drifted to, which
+      # is why this is `--allow-dirty` rather than a checkout of main.
+      - name: Set the version from the tag
+        run: |
+          VER="${{ github.ref_name }}"
+          VER="${VER#v}"
+          sed -i "s/^version = \".*\"/version = \"${VER}\"/" Cargo.toml
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+
+      - run: cargo publish --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
   sync-version:
     name: Sync Cargo.toml version
     needs: release

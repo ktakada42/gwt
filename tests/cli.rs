@@ -266,6 +266,71 @@ fn add_refuses_a_branch_that_is_already_checked_out() {
     assert!(stderr.contains("already checked out"), "{stderr}");
 }
 
+/// A branch name git was always going to refuse must not leave a directory
+/// behind: `worktrees/` is where the picker and `gwx list` look, and an empty
+/// `feature` sitting there is indistinguishable from a worktree that broke.
+#[test]
+fn a_refused_branch_name_leaves_nothing_behind() {
+    let fx = Fixture::new();
+
+    // Valid as a path, never as a ref: git rejects `..` in a branch name.
+    let out = fx.gwx(["add", "--", "feature/../oops"]);
+    assert!(!out.status.success());
+    assert!(
+        !fx.worktrees_dir().exists(),
+        "an empty tree was left behind"
+    );
+
+    // `git worktree add` runs `git branch` itself, without a `--` gwx can put
+    // there, so a leading dash has to be turned away here — otherwise git
+    // answers with the usage of a command the user never typed.
+    let out = fx.gwx(["add", "--", "--detach"]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("must not start with `-`"), "{stderr}");
+    assert!(
+        !fx.worktrees_dir().exists(),
+        "an empty tree was left behind"
+    );
+}
+
+/// A branch name may hold characters a shell would act on. gwx never builds a
+/// command line out of one — git is spawned with an argument vector, and hooks
+/// see the name through the environment — so it stays a name all the way down.
+#[test]
+fn a_branch_name_full_of_shell_metacharacters_is_just_a_name() {
+    let fx = Fixture::new();
+    // A name git accepts and a shell would not leave alone. It stays relative
+    // and free of spaces, which is all `git check-ref-format` insists on here:
+    // a shell that evaluated it would drop `pwned` in whatever directory it
+    // was standing in, and the two candidates are checked below.
+    let branch = "a$(>pwned)b;whoami";
+
+    fx.write_config(
+        "[[hooks.post_create]]\ntype = \"command\"\ncommand = 'echo $GWX_BRANCH > seen'\n",
+    );
+
+    let path = fx.gwx_ok(["add", "--", branch]);
+    let worktree = PathBuf::from(&path);
+
+    assert!(
+        !fx.repo.join("pwned").exists() && !worktree.join("pwned").exists(),
+        "the branch name reached a shell"
+    );
+    assert_eq!(
+        git_out(&worktree, ["rev-parse", "--abbrev-ref", "HEAD"]),
+        branch
+    );
+    // The hook expands `$GWX_BRANCH` unquoted, which is what a hook written in
+    // a hurry does; sh does not re-evaluate what a parameter expands to.
+    assert_eq!(
+        std::fs::read_to_string(worktree.join("seen"))
+            .unwrap()
+            .trim(),
+        branch
+    );
+}
+
 #[test]
 fn no_create_fails_for_unknown_branches() {
     let fx = Fixture::new();

@@ -27,6 +27,10 @@ pub fn run(args: AddArgs) -> Result<()> {
     if branch.is_empty() {
         bail!("branch name must not be empty");
     }
+    reject_leading_dash("branch name", &branch)?;
+    if let Some(start) = args.from.as_deref() {
+        reject_leading_dash("start point", start)?;
+    }
 
     let path = match &args.path {
         Some(p) => normalize(&repo.cwd.join(p)),
@@ -73,11 +77,10 @@ pub fn run(args: AddArgs) -> Result<()> {
         )?;
     }
 
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-
+    // The directories leading to the worktree are git's to create. It makes
+    // them itself, and only once it has accepted the branch name and the start
+    // point — creating them here instead meant a name git was always going to
+    // refuse still left an empty `worktrees/whatever` behind.
     git::run(
         &repo.main,
         git_args(&plan, &branch, &path, args.force, args.quiet),
@@ -110,6 +113,20 @@ pub fn run(args: AddArgs) -> Result<()> {
     } else {
         eprintln!("Worktree ready.");
         println!("{}", path.display());
+    }
+    Ok(())
+}
+
+/// Refuses a name git would read as an option.
+///
+/// gwx puts `--` in front of the paths and refs it passes, but `git worktree
+/// add` turns around and runs `git branch` itself, and that call is git's own.
+/// A `-` there is an option, so `gwx add -- --detach` came back as a page of
+/// usage text about a command the user never typed. No ref may begin with a
+/// dash anyway, so nothing legitimate is turned away.
+fn reject_leading_dash(what: &str, value: &str) -> Result<()> {
+    if value.starts_with('-') {
+        bail!("{what} must not start with `-`: `{value}`");
     }
     Ok(())
 }
@@ -155,25 +172,28 @@ fn git_args(plan: &Plan, branch: &str, path: &Path, force: bool, quiet: bool) ->
     if quiet {
         args.push("--quiet".into());
     }
-    match plan {
-        Plan::Existing => {
-            args.push(path.display().to_string());
-            args.push(branch.to_string());
-        }
+    // The ref after the path is the branch to check out, or the point the new
+    // branch is cut from.
+    let start = match plan {
+        Plan::Existing => branch.to_string(),
         Plan::Track(remote) => {
             args.push("--track".into());
             args.push("-b".into());
             args.push(branch.to_string());
-            args.push(path.display().to_string());
-            args.push(remote.clone());
+            remote.clone()
         }
         Plan::Create(start) => {
             args.push("-b".into());
             args.push(branch.to_string());
-            args.push(path.display().to_string());
-            args.push(start.clone());
+            start.clone()
         }
-    }
+    };
+    // Past `--` everything is a path or a ref. Nothing here comes from a shell,
+    // so this is not about quoting: it is about a name that starts with a dash
+    // being a name git rejects rather than an option git obeys.
+    args.push("--".into());
+    args.push(path.display().to_string());
+    args.push(start);
     args
 }
 
@@ -184,7 +204,7 @@ mod tests {
     #[test]
     fn existing_branch_is_checked_out() {
         let args = git_args(&Plan::Existing, "feat", Path::new("/wt/feat"), false, false);
-        assert_eq!(args, ["worktree", "add", "/wt/feat", "feat"]);
+        assert_eq!(args, ["worktree", "add", "--", "/wt/feat", "feat"]);
     }
 
     #[test]
@@ -204,6 +224,7 @@ mod tests {
                 "--track",
                 "-b",
                 "feat",
+                "--",
                 "/wt/feat",
                 "origin/feat"
             ]
@@ -221,7 +242,7 @@ mod tests {
         );
         assert_eq!(
             args,
-            ["worktree", "add", "--force", "--quiet", "-b", "feat", "/wt/feat", "main"]
+            ["worktree", "add", "--force", "--quiet", "-b", "feat", "--", "/wt/feat", "main"]
         );
     }
 }

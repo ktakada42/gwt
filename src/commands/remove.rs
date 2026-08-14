@@ -74,6 +74,8 @@ pub fn remove_worktree(repo: &Repo, worktree: &Worktree, opts: RemoveOptions) ->
     if opts.force {
         git_args.push("--force".to_string());
     }
+    // Past `--` the argument is a path, whatever it starts with.
+    git_args.push("--".to_string());
     git_args.push(worktree.path.display().to_string());
     run_git(&repo.main, git_args, opts.quiet)
         .with_context(|| format!("failed to remove {}", worktree.path.display()))?;
@@ -94,7 +96,7 @@ pub fn remove_worktree(repo: &Repo, worktree: &Worktree, opts: RemoveOptions) ->
             );
         }
         let flag = if opts.force { "-D" } else { "-d" };
-        run_git(&repo.main, ["branch", flag, branch], opts.quiet)
+        run_git(&repo.main, ["branch", flag, "--", branch], opts.quiet)
             .with_context(|| format!("failed to delete branch `{branch}`"))
             .with_context(removed)?;
     }

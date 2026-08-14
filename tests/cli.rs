@@ -801,6 +801,61 @@ fn copy_hooks_are_refused_around_removal() {
 }
 
 #[test]
+fn clean_sorts_worktrees_by_what_removing_them_would_cost() {
+    let fx = Fixture::new();
+
+    // Merged into HEAD and clean: the only state gwx would tick for you.
+    fx.gwx_ok(["add", "feature/merged"]);
+
+    // Committed and pushed, but not merged — a branch under review.
+    let pushed = PathBuf::from(fx.gwx_ok(["add", "feature/pushed"]));
+    git(&pushed, ["config", "user.email", "test@example.com"]);
+    git(&pushed, ["config", "user.name", "Test"]);
+    git(&pushed, ["commit", "-q", "--allow-empty", "-m", "reviewed"]);
+    git(&pushed, ["push", "-q", "-u", "origin", "feature/pushed"]);
+
+    // Committed and never pushed: removing the worktree keeps the commits,
+    // removing the branch would not.
+    let local = PathBuf::from(fx.gwx_ok(["add", "hotfix/local"]));
+    git(&local, ["config", "user.email", "test@example.com"]);
+    git(&local, ["config", "user.name", "Test"]);
+    git(&local, ["commit", "-q", "--allow-empty", "-m", "wip"]);
+
+    // Uncommitted changes: the one state where removal destroys something.
+    let dirty = PathBuf::from(fx.gwx_ok(["add", "wip/refactor"]));
+    std::fs::write(dirty.join("scratch.txt"), "unsaved").unwrap();
+
+    // No terminal in the test harness, so this is the text form.
+    let out = fx.gwx(["clean"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let table = String::from_utf8_lossy(&out.stdout);
+
+    let row = |name: &str| {
+        table
+            .lines()
+            .find(|l| l.starts_with(name))
+            .unwrap_or_else(|| panic!("no row for {name} in:\n{table}"))
+            .to_string()
+    };
+    assert!(row("feature/merged").contains("done"), "{table}");
+    assert!(row("feature/pushed").contains("pushed"), "{table}");
+    assert!(row("hotfix/local").contains("local"), "{table}");
+    assert!(row("wip/refactor").contains("dirty"), "{table}");
+
+    // Nothing is removed without a terminal to choose in.
+    assert!(dirty.exists());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("nothing was removed"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 fn init_writes_a_config_template() {
     let fx = Fixture::new();
     assert!(fx.gwx(["init"]).status.success());

@@ -34,6 +34,7 @@ fn run() -> anyhow::Result<()> {
         Command::List(args) => commands::list::run(args),
         Command::Cd(args) => commands::cd::run(args),
         Command::Remove(args) => commands::remove::run(args),
+        Command::Clean(args) => commands::clean::run(args),
         Command::Init(args) => commands::init::run(args),
         Command::ShellInit(args) => commands::shell::shell_init(args),
         Command::Completion(args) => commands::shell::completion(args),

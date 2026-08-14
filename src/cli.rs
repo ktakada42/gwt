@@ -37,6 +37,9 @@ pub enum Command {
     #[command(visible_alias = "rm")]
     Remove(RemoveArgs),
 
+    /// Review the worktrees you are done with and remove the ones you pick
+    Clean(CleanArgs),
+
     /// Write a .gwx.toml template to the main worktree
     Init(InitArgs),
 
@@ -128,6 +131,21 @@ pub struct RemoveArgs {
     pub with_branch: bool,
 
     /// Remove even when the worktree has uncommitted changes
+    #[arg(long)]
+    pub force: bool,
+
+    /// Skip pre_remove and post_remove hooks
+    #[arg(long)]
+    pub no_hooks: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CleanArgs {
+    /// Delete each removed worktree's branch as well, when it is merged
+    #[arg(long)]
+    pub with_branch: bool,
+
+    /// Remove worktrees with uncommitted changes, and unmerged branches
     #[arg(long)]
     pub force: bool,
 

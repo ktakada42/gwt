@@ -1,5 +1,6 @@
 //! Thin wrappers around the `git` CLI.
 
+use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -305,4 +306,105 @@ pub fn merged_branches(main: &Path) -> Result<Vec<String>> {
         ["branch", "--merged", "HEAD", "--format=%(refname:short)"],
     )?;
     Ok(non_empty_lines(&out))
+}
+
+/// Where a branch stands against the remote branch it tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Tracking {
+    /// No upstream: the branch has never left this machine.
+    Untracked,
+    /// An upstream is configured, but it is no longer on the remote.
+    Gone,
+    /// Every commit is on the upstream.
+    Pushed,
+    /// This many commits are on the branch and not on its upstream.
+    Ahead(usize),
+}
+
+/// How every local branch stands against its upstream.
+///
+/// One call for the whole repository, and the ahead count comes free with it:
+/// asking `for-each-ref` for `%(upstream:track)` measured the same as asking
+/// for the upstream name alone, and a tenth of the merged-branch check the
+/// picker already makes.
+pub fn tracking(main: &Path) -> Result<BTreeMap<String, Tracking>> {
+    let out = output(
+        main,
+        [
+            "for-each-ref",
+            "--format=%(refname:short)\t%(upstream:short)\t%(upstream:track)",
+            "refs/heads/",
+        ],
+    )?;
+
+    let mut map = BTreeMap::new();
+    for line in out.lines() {
+        let mut fields = line.split('\t');
+        let (Some(branch), Some(upstream)) = (fields.next(), fields.next()) else {
+            continue;
+        };
+        if branch.is_empty() {
+            continue;
+        }
+        map.insert(
+            branch.to_string(),
+            parse_tracking(upstream, fields.next().unwrap_or_default()),
+        );
+    }
+    Ok(map)
+}
+
+/// Reads one row of `for-each-ref` output.
+///
+/// `%(upstream:track)` is empty both for a branch with no upstream and for one
+/// that is level with it, so the upstream name is what tells those apart.
+fn parse_tracking(upstream: &str, track: &str) -> Tracking {
+    if upstream.is_empty() {
+        return Tracking::Untracked;
+    }
+    if track.contains("gone") {
+        return Tracking::Gone;
+    }
+    // "[ahead 3]", "[ahead 1, behind 2]", "[behind 2]", or empty. Behind on its
+    // own is still fully pushed: the remote has everything this branch has.
+    match track
+        .trim_start_matches('[')
+        .split(',')
+        .map(str::trim)
+        .find_map(|part| part.strip_prefix("ahead "))
+        .and_then(|n| n.trim_end_matches(']').parse().ok())
+    {
+        Some(ahead) => Tracking::Ahead(ahead),
+        None => Tracking::Pushed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracking_tells_apart_never_pushed_and_level() {
+        // The track field is empty in both cases; the upstream name is not.
+        assert_eq!(parse_tracking("", ""), Tracking::Untracked);
+        assert_eq!(parse_tracking("origin/feat", ""), Tracking::Pushed);
+    }
+
+    #[test]
+    fn tracking_reads_the_ahead_count() {
+        assert_eq!(
+            parse_tracking("origin/feat", "[ahead 3]"),
+            Tracking::Ahead(3)
+        );
+        assert_eq!(
+            parse_tracking("origin/feat", "[ahead 1, behind 2]"),
+            Tracking::Ahead(1)
+        );
+        // Behind alone means the remote has everything this branch has.
+        assert_eq!(
+            parse_tracking("origin/feat", "[behind 2]"),
+            Tracking::Pushed
+        );
+        assert_eq!(parse_tracking("origin/feat", "[gone]"), Tracking::Gone);
+    }
 }

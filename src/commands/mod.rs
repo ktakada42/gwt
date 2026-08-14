@@ -1,5 +1,6 @@
 pub mod add;
 pub mod cd;
+pub mod clean;
 pub mod init;
 pub mod list;
 pub mod man;

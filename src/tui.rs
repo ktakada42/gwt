@@ -12,6 +12,7 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::{cursor, queue, style, terminal};
 
+use crate::commands::clean::Candidate;
 use crate::commands::remove::{removal_blocker, remove_worktree, RemoveOptions};
 use crate::git::{self, Worktree};
 use crate::repo::Repo;
@@ -905,6 +906,169 @@ fn draw_hints(tty: &mut File, hints: &[&Hint]) -> Result<()> {
     }
     Ok(())
 }
+
+/// The multi-select screen behind `gwx clean`.
+///
+/// Deliberately not the picker: that one exists to go somewhere and takes a
+/// single choice, this one exists to remove things and takes many. Sharing one
+/// widget would mean a mode flag threaded through every keystroke, and a list
+/// where Enter sometimes moves you and sometimes deletes.
+///
+/// Returns the indices to remove, or `None` when the user backed out.
+pub fn choose_to_clean(candidates: &[Candidate]) -> Result<Option<Vec<usize>>> {
+    let mut screen = Screen::open()?;
+    let mut ticked: Vec<bool> = candidates.iter().map(|c| c.state.preselected()).collect();
+    let mut cursor_at = 0usize;
+    let last = candidates.len() - 1;
+
+    loop {
+        draw_clean(&mut screen.tty, candidates, &ticked, cursor_at)?;
+
+        let Event::Key(key) = event::read()? else {
+            continue;
+        };
+        if key.kind != KeyEventKind::Press {
+            continue;
+        }
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        match key.code {
+            KeyCode::Esc => return Ok(None),
+            KeyCode::Char('c') | KeyCode::Char('g') if ctrl => return Ok(None),
+            KeyCode::Enter => {
+                return Ok(Some(
+                    ticked
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, on)| **on)
+                        .map(|(i, _)| i)
+                        .collect(),
+                ))
+            }
+            KeyCode::Down => cursor_at = if cursor_at == last { 0 } else { cursor_at + 1 },
+            KeyCode::Char('n') if ctrl => {
+                cursor_at = if cursor_at == last { 0 } else { cursor_at + 1 }
+            }
+            KeyCode::Up => cursor_at = cursor_at.checked_sub(1).unwrap_or(last),
+            KeyCode::Char('p') if ctrl => cursor_at = cursor_at.checked_sub(1).unwrap_or(last),
+            KeyCode::Char(' ') => ticked[cursor_at] = !ticked[cursor_at],
+            // `a` puts the list back where it started rather than ticking
+            // everything: "all" here means all the finished ones, which is the
+            // selection worth being able to get back to after wandering.
+            KeyCode::Char('a') => {
+                for (tick, candidate) in ticked.iter_mut().zip(candidates) {
+                    *tick = candidate.state.preselected();
+                }
+            }
+            KeyCode::Char('x') => ticked.iter_mut().for_each(|tick| *tick = false),
+            _ => {}
+        }
+    }
+}
+
+/// One `gwx clean` frame: header, rows, and the help line.
+fn draw_clean(
+    tty: &mut File,
+    candidates: &[Candidate],
+    ticked: &[bool],
+    cursor_at: usize,
+) -> Result<()> {
+    let (cols, rows) = terminal::size()?;
+    let cols = cols as usize;
+    let width = candidates
+        .iter()
+        .map(|c| c.name.chars().count())
+        .max()
+        .unwrap_or(0);
+
+    let header = format!("      {:<width$}  {:<6}  {}", "WORKTREE", "STATUS", "NOTE");
+    queue!(
+        tty,
+        terminal::Clear(terminal::ClearType::All),
+        cursor::MoveTo(0, 0),
+        style::Print("Select worktrees to remove"),
+        cursor::MoveTo(0, 2),
+        style::SetAttribute(style::Attribute::Bold),
+        style::SetAttribute(style::Attribute::Underlined),
+        style::Print(fit(&header, cols)),
+        style::SetAttribute(style::Attribute::Reset),
+    )?;
+
+    for (i, candidate) in candidates.iter().enumerate() {
+        let row = 3 + i as u16;
+        if row >= rows.saturating_sub(2) {
+            break;
+        }
+        let line = format!(
+            "{} [{}] {:<width$}  {:<6}  {}",
+            if i == cursor_at { ">" } else { " " },
+            if ticked[i] { "x" } else { " " },
+            candidate.name,
+            candidate.state.label(),
+            candidate.note,
+        );
+        queue!(tty, cursor::MoveTo(0, row))?;
+        if i == cursor_at {
+            queue!(
+                tty,
+                style::SetAttribute(style::Attribute::Reverse),
+                style::Print(fit(&format!("{line:<cols$}"), cols)),
+                style::SetAttribute(style::Attribute::Reset),
+            )?;
+        } else {
+            queue!(tty, style::Print(fit(&line, cols)))?;
+        }
+    }
+
+    let count = ticked.iter().filter(|on| **on).count();
+    queue!(
+        tty,
+        cursor::MoveTo(0, rows.saturating_sub(2)),
+        style::SetAttribute(style::Attribute::Dim),
+        style::Print(fit(
+            &format!("{count} of {} selected", candidates.len()),
+            cols
+        )),
+        style::SetAttribute(style::Attribute::Reset),
+        cursor::MoveTo(0, rows.saturating_sub(1)),
+    )?;
+    draw_hints(tty, &hints_that_fit(CLEAN_HINTS, cols))?;
+    tty.flush()?;
+    Ok(())
+}
+
+/// The help line for `gwx clean`, in the order the keys get used.
+const CLEAN_HINTS: &[Hint] = &[
+    Hint {
+        keys: &["up/down"],
+        label: "move",
+        optional: true,
+    },
+    Hint {
+        keys: &["space"],
+        label: "toggle",
+        optional: false,
+    },
+    Hint {
+        keys: &["a"],
+        label: "reset",
+        optional: true,
+    },
+    Hint {
+        keys: &["x"],
+        label: "none",
+        optional: true,
+    },
+    Hint {
+        keys: &["enter"],
+        label: "remove",
+        optional: false,
+    },
+    Hint {
+        keys: &["esc"],
+        label: "cancel",
+        optional: false,
+    },
+];
 
 #[cfg(test)]
 mod tests {

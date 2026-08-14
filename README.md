@@ -47,6 +47,9 @@ was for, as long as it is merged.
 - **Hooks.** Copy files, create symlinks and run commands around creation and
   removal, configured per repository in `.gwx.toml` — so the containers and
   caches a worktree brought up leave with it.
+- **Clean up in one pass.** `gwx clean` sorts the worktrees by what removing
+  them would cost — merged and clean, pushed, local-only, or holding
+  uncommitted work — and removes the ones you tick.
 - **List and navigate.** `gwx list` opens an interactive list — move, filter,
   press <kbd>Enter</kbd> to go there or <kbd>Ctrl</kbd>+<kbd>d</kbd> to delete.
   `gwx cd <name>` jumps straight to one, with tab completion.
@@ -143,6 +146,7 @@ you: `cd "$(gwx cd feature/auth)"`.
 | `gwx list` (`ls`) | Pick a worktree interactively; `--plain` or `--paths` for text |
 | `gwx cd [<name>]` | Move into a worktree; with no argument, to the main one |
 | `gwx remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
+| `gwx clean` | Review the worktrees you are done with and remove the ones you pick |
 | `gwx init` | Write a `.gwx.toml` template |
 | `gwx shell-init <shell>` | Print the `cd` function and the completion hookup |
 | `gwx completion <shell>` | Print the completion hookup only |
@@ -157,6 +161,7 @@ when they are unambiguous. Every command has a man page (`man gwx-add`).
 | --- | --- |
 | [Commands](https://github.com/ktakada42/gwx/blob/main/docs/commands.md) | Every command and flag, and how names are resolved |
 | [The picker](https://github.com/ktakada42/gwx/blob/main/docs/picker.md) | Keys, the delete dialog, and when it does not open |
+| [`gwx clean`](https://github.com/ktakada42/gwx/blob/main/docs/clean.md) | What makes a worktree safe to remove, and the multi-select list |
 | [Configuration](https://github.com/ktakada42/gwx/blob/main/docs/configuration.md) | `.gwx.toml`, the user-wide config, and `base_dir` |
 | [Hooks](https://github.com/ktakada42/gwx/blob/main/docs/hooks.md) | Phases, types, environment, and what a failure leaves behind |
 

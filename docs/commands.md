@@ -6,6 +6,7 @@
 | `gwx list` (`ls`) | Pick a worktree interactively; `--plain` or `--paths` for text |
 | `gwx cd [<name>]` | Move into a worktree; with no argument, to the main one |
 | `gwx remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
+| `gwx clean` | Review the worktrees you are done with and remove the ones you pick |
 | `gwx init` | Write a `.gwx.toml` template |
 | `gwx shell-init <shell>` | Print the `cd` function and the completion hookup |
 | `gwx completion <shell>` | Print the completion hookup only |
@@ -59,6 +60,16 @@ when it is merged into `HEAD` of the main worktree; `--force` overrides both
 checks. `--no-hooks` skips the `pre_remove` and `post_remove` hooks, which is
 the way out when a hook itself is what stands between you and a stale
 worktree.
+
+## `gwx clean`
+
+```
+gwx clean [--with-branch] [--force] [--no-hooks]
+```
+
+Lists every removable worktree with what removing it would cost, ticks the
+ones that are merged and clean, and removes what you confirm. See
+[`gwx clean`](clean.md) for the states and the keys.
 
 ## `gwx list`
 

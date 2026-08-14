@@ -187,6 +187,9 @@ base_dir = "../worktrees"
 # from = ".env"
 # to = ".env"
 #
+# `symlink` shares one directory with the main worktree; `copy` gives the
+# worktree its own, keeps symlinks as symlinks, and on macOS clones the tree
+# rather than duplicating it.
 # [[hooks.post_create]]
 # type = "symlink"
 # from = "node_modules"

@@ -334,6 +334,8 @@ type = "copy"
 from = ".env"          # relative to the main worktree
 to = ".env"            # relative to the new worktree; defaults to `from`
 
+# Share one node_modules with the main worktree. On macOS a `copy` is a
+# clone and costs about the same — see below for which to pick.
 [[hooks.post_create]]
 type = "symlink"
 from = "node_modules"
@@ -389,21 +391,34 @@ to itself and shows only what a failing one said last.
 
 `from` and `to` are relative paths that may not escape their worktree.
 
-A `copy` keeps symlinks inside the tree as symlinks instead of following them,
-including the ones pointing at nothing that a removed package leaves behind.
-`node_modules/.bin` is full of relative links that only work that way.
+> [!NOTE]
+> **A `copy` keeps symlinks as symlinks.** It recreates them rather than
+> following them, dangling ones included — `node_modules/.bin` is full of
+> relative links that only work that way, and a removed package leaves behind
+> links pointing at nothing.
 
-### Copying a directory as large as `node_modules`
+> [!TIP]
+> **On macOS a `copy` is a clone.** APFS shares the blocks between the two
+> directories until one of them is written to, and gwt clones the whole tree in
+> a single `clonefile` call. A `node_modules` of 10,000 files took **0.13s**,
+> against 2.0s for the same copy made file by file — and neither one spends the
+> disk space. On Linux a `copy` is a real copy of both the time and the space.
 
-On macOS a `copy` costs almost no disk space: APFS clones the blocks, so the
-two directories share them until one is written to. gwt clones the whole tree
-in one call — a `node_modules` of 10,000 files took 0.13s, against 2.0s for the
-same copy made file by file.
+### `copy` or `symlink` for `node_modules`?
 
-Elsewhere a `copy` is a real copy, and the space is spent for real. On Linux
-that is the trade to weigh: `copy` gives the worktree a `node_modules` it can
-install into on its own, `symlink` shares one directory with the main worktree
-and costs nothing until an install in one worktree surprises another.
+Both hooks exist because the answer depends on your platform and on how much
+the worktrees should be able to diverge.
+
+| | `copy` | `symlink` |
+| --- | --- | --- |
+| Disk | Shared blocks on macOS; a real second copy on Linux | Nothing |
+| Time | One clone on macOS; file by file on Linux | Instant |
+| Installing | Each worktree installs on its own | One directory for all of them — an install in one is an install in every one |
+
+On macOS, `copy` is close to free and leaves the worktrees independent, which
+is the reason to prefer it. On Linux, `symlink` is what keeps a large
+`node_modules` from being duplicated per worktree — as long as you are not
+running installs of different dependency sets side by side.
 
 Every hook sees these environment variables:
 

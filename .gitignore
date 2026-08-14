@@ -1,1 +1,5 @@
 /target
+
+# Finder leaves these in any directory it has been asked to display, which
+# for this repository means the ones holding the demo recordings.
+.DS_Store

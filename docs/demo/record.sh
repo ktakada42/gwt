@@ -16,7 +16,7 @@ vhs_image=gwx-vhs
 
 tapes=("$@")
 if [ ${#tapes[@]} -eq 0 ]; then
-    tapes=(add list remove)
+    tapes=(add list remove clean)
 fi
 
 echo "==> building gwx for linux"

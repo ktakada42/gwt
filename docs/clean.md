@@ -13,7 +13,7 @@ Select worktrees to remove
   [ ] wip/refactor     dirty   uncommitted changes would be lost
 
 1 of 4 selected
- up/down  move   space  toggle   a  reset   x  none   enter  remove   esc  cancel
+ up/down  move   space  toggle   enter  remove   esc  cancel
 ```
 
 ```
@@ -43,8 +43,6 @@ commits may be on no remote any more, so gwx treats them as yours alone.
 | --- | --- |
 | <kbd>↑</kbd> <kbd>↓</kbd> (or <kbd>Ctrl</kbd>+<kbd>p</kbd> / <kbd>n</kbd>) | Move the cursor |
 | <kbd>Space</kbd> | Tick or untick the row |
-| <kbd>a</kbd> | Back to the starting selection — every `done` row |
-| <kbd>x</kbd> | Untick everything |
 | <kbd>Enter</kbd> | Remove what is ticked |
 | <kbd>Esc</kbd> or <kbd>Ctrl</kbd>+<kbd>c</kbd> | Leave without removing anything |
 

@@ -951,15 +951,6 @@ pub fn choose_to_clean(candidates: &[Candidate]) -> Result<Option<Vec<usize>>> {
             KeyCode::Up => cursor_at = cursor_at.checked_sub(1).unwrap_or(last),
             KeyCode::Char('p') if ctrl => cursor_at = cursor_at.checked_sub(1).unwrap_or(last),
             KeyCode::Char(' ') => ticked[cursor_at] = !ticked[cursor_at],
-            // `a` puts the list back where it started rather than ticking
-            // everything: "all" here means all the finished ones, which is the
-            // selection worth being able to get back to after wandering.
-            KeyCode::Char('a') => {
-                for (tick, candidate) in ticked.iter_mut().zip(candidates) {
-                    *tick = candidate.state.preselected();
-                }
-            }
-            KeyCode::Char('x') => ticked.iter_mut().for_each(|tick| *tick = false),
             _ => {}
         }
     }
@@ -1036,27 +1027,23 @@ fn draw_clean(
     Ok(())
 }
 
-/// The help line for `gwx clean`, in the order the keys get used.
+/// The help line for `gwx clean`.
+///
+/// Four keys, none of them optional: the line fits an eighty-column terminal
+/// whole, so nothing here is a shortcut somebody has to be told about. Bulk
+/// selection is deliberately absent — with a handful of worktrees, space is
+/// enough, and the key that ticks everything is the one this screen should
+/// think hardest before adding.
 const CLEAN_HINTS: &[Hint] = &[
     Hint {
         keys: &["up/down"],
         label: "move",
-        optional: true,
+        optional: false,
     },
     Hint {
         keys: &["space"],
         label: "toggle",
         optional: false,
-    },
-    Hint {
-        keys: &["a"],
-        label: "reset",
-        optional: true,
-    },
-    Hint {
-        keys: &["x"],
-        label: "none",
-        optional: true,
     },
     Hint {
         keys: &["enter"],

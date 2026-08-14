@@ -108,7 +108,9 @@ pub fn run(args: CleanArgs) -> Result<()> {
             Err(e) => eprintln!("Failed to remove {}: {e:#}", candidate.name),
         }
     }
-    eprintln!("Removed {removed} worktree(s).");
+    if removed != 1 {
+        eprintln!("Removed {removed} worktrees.");
+    }
     Ok(())
 }
 

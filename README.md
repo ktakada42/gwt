@@ -459,12 +459,38 @@ Every hook sees these environment variables:
 | `GWX_WORKTREE_PATH` | Absolute path of the worktree — in `post_remove`, of the directory that was just deleted |
 | `GWX_MAIN_WORKTREE` | Absolute path of the main worktree |
 
-A failing hook stops the sequence and makes the command exit non-zero, and the
-phase decides what that means. A `pre_create` or `pre_remove` failure blocks the
-operation: nothing is created, nothing is deleted. By the time `post_create` or
-`post_remove` fails the worktree has already been created or removed, so the
-error says so and the state stands. Pass `--no-hooks` to `gwx add` or
-`gwx remove` to skip them entirely.
+### When a hook fails
+
+The sequence stops there and the command exits non-zero. **Nothing is rolled
+back.** Hooks that already ran stay applied, the rest do not run, and a
+`command` hook cannot be undone anyway — there is no un-running `npm install`.
+So gwx does not pretend to be atomic; it tells you where it stopped:
+
+```console
+$ gwx add feature/auth
+Created branch `feature/auth` from `HEAD`
+Running post_create hooks...
+  [1/3] copy .env -> .env
+  [2/3] npm install
+        stopped here; 1 of 3 did not run
+gwx: the worktree was created and is left at /home/me/worktrees/feature/auth: post_create hook 2/3 failed: npm install: command exited with status 1
+```
+
+The numbered list says what ran, the `stopped here` line says what will not,
+and the error says which hook and what survives it.
+
+What survives depends on the phase. A `pre_create` or `pre_remove` failure
+blocks the operation itself: nothing is created, nothing is deleted. By the
+time `post_create` or `post_remove` fails, the worktree has already been
+created or removed, and it stays that way — left in place for you to look at
+rather than swept away with the evidence.
+
+Removal has one more halfway point: `--with-branch` deletes the worktree first
+and the branch second, so a branch that turns out not to be merged leaves the
+worktree gone and the branch behind. The error says that too.
+
+Pass `--no-hooks` to `gwx add` or `gwx remove` to skip hooks entirely, which is
+also the way out when a hook is what stands between you and a stale worktree.
 
 ## Contributing
 

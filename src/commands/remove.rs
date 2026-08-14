@@ -79,15 +79,24 @@ pub fn remove_worktree(repo: &Repo, worktree: &Worktree, opts: RemoveOptions) ->
         .with_context(|| format!("failed to remove {}", worktree.path.display()))?;
 
     if opts.with_branch {
+        // Everything past here happens with the worktree already gone, so a
+        // failure has to say so: otherwise `--with-branch` looks like it did
+        // nothing at all, and the next attempt starts from a state the
+        // message never mentioned.
+        let removed = || format!("the worktree at {} was removed", worktree.path.display());
         let Some(branch) = worktree.branch.as_deref() else {
-            bail!("the worktree had no branch to remove");
+            bail!("{}, but it had no branch to remove", removed());
         };
         if !opts.force && !git::is_merged(&repo.main, branch)? {
-            bail!("branch `{branch}` is not merged into HEAD of the main worktree; pass --force to delete it anyway");
+            bail!(
+                "{}, but branch `{branch}` is not merged into HEAD of the main worktree and was kept; pass --force to delete it too",
+                removed()
+            );
         }
         let flag = if opts.force { "-D" } else { "-d" };
         run_git(&repo.main, ["branch", flag, branch], opts.quiet)
-            .with_context(|| format!("failed to delete branch `{branch}`"))?;
+            .with_context(|| format!("failed to delete branch `{branch}`"))
+            .with_context(removed)?;
     }
 
     if !opts.no_hooks {
@@ -97,7 +106,17 @@ pub fn remove_worktree(repo: &Repo, worktree: &Worktree, opts: RemoveOptions) ->
             &ctx,
             reporting,
         )
-        .context("the worktree was removed, but a post_remove hook failed")?;
+        .with_context(|| {
+            let branch = if opts.with_branch {
+                " and its branch"
+            } else {
+                ""
+            };
+            format!(
+                "the worktree at {}{branch} was already removed",
+                worktree.path.display()
+            )
+        })?;
     }
     Ok(())
 }

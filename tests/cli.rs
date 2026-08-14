@@ -340,7 +340,14 @@ fn a_failing_hook_reports_an_error() {
 
     let out = fx.gwx(["add", "broken"]);
     assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("post_create hook failed"));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    // Which hook, out of how many, and what it left behind.
+    assert!(stderr.contains("post_create hook 1/1 failed"), "{stderr}");
+    assert!(stderr.contains("exited with status 7"), "{stderr}");
+    assert!(
+        stderr.contains("the worktree was created and is left at"),
+        "{stderr}"
+    );
 }
 
 #[test]
@@ -431,6 +438,41 @@ command = "printf repo >> order"
         std::fs::read_to_string(path.join("order")).unwrap(),
         "userrepo"
     );
+}
+
+#[test]
+fn a_hook_failure_says_where_it_stopped() {
+    let fx = Fixture::new();
+    fx.write_config(
+        r#"
+[[hooks.post_create]]
+type = "command"
+command = "printf ran > first"
+
+[[hooks.post_create]]
+type = "command"
+command = "exit 7"
+
+[[hooks.post_create]]
+type = "command"
+command = "printf ran > third"
+"#,
+    );
+
+    let out = fx.gwx(["add", "halfway"]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+
+    // Which one failed, and that the rest never got their turn.
+    assert!(stderr.contains("post_create hook 2/3 failed"), "{stderr}");
+    assert!(stderr.contains("1 of 3 did not run"), "{stderr}");
+
+    // The state those two sentences describe: nothing is rolled back, the
+    // first hook's work stands and the third never happened.
+    let path = fx.worktrees_dir().join("halfway");
+    assert!(path.join("first").exists(), "the first hook was undone");
+    assert!(!path.join("third").exists(), "the third hook ran anyway");
+    assert!(path.exists(), "the worktree was removed");
 }
 
 #[test]
@@ -696,7 +738,7 @@ fn a_failing_pre_remove_hook_keeps_the_worktree() {
 
     let out = fx.gwx(["remove", "kept"]);
     assert!(!out.status.success());
-    assert!(String::from_utf8_lossy(&out.stderr).contains("pre_remove hook failed"));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("pre_remove hook 1/1 failed"));
     assert!(path.exists(), "the removal should have been called off");
 
     // The escape hatch still works when a hook is the thing that is broken.
@@ -713,8 +755,8 @@ fn a_failing_post_remove_hook_reports_the_removal_that_already_happened() {
     let out = fx.gwx(["remove", "swept"]);
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("post_remove hook failed"), "{stderr}");
-    assert!(stderr.contains("the worktree was removed"), "{stderr}");
+    assert!(stderr.contains("post_remove hook 1/1 failed"), "{stderr}");
+    assert!(stderr.contains("was already removed"), "{stderr}");
     assert!(!path.exists());
 }
 

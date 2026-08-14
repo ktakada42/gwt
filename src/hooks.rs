@@ -98,11 +98,29 @@ pub fn run_all(
         eprintln!("Running {} hooks...", phase.label());
     }
     for (i, hook) in hooks.iter().enumerate() {
+        let position = format!("{}/{}", i + 1, hooks.len());
         if announce {
-            eprintln!("  [{}/{}] {}", i + 1, hooks.len(), hook.summary());
+            eprintln!("  [{position}] {}", hook.summary());
         }
-        run_one(hook, phase, ctx, reporting)
-            .with_context(|| format!("{} hook failed: {}", phase.label(), hook.summary()))?;
+        if let Err(e) = run_one(hook, phase, ctx, reporting) {
+            // The numbered list above already shows what ran. What it cannot
+            // show is that the rest never will, which is the difference
+            // between a worktree that is set up and one that stopped halfway.
+            let left = hooks.len() - (i + 1);
+            if announce && left > 0 {
+                eprintln!(
+                    "        stopped here; {left} of {} did not run",
+                    hooks.len()
+                );
+            }
+            return Err(e).with_context(|| {
+                format!(
+                    "{} hook {position} failed: {}",
+                    phase.label(),
+                    hook.summary()
+                )
+            });
+        }
     }
     Ok(())
 }
@@ -175,7 +193,7 @@ fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext, reporting: Reporting) -
                 if !out.status.success() {
                     bail!(
                         "command exited with status {}{}",
-                        out.status,
+                        exit_status(&out.status),
                         tail(&out.stderr)
                     );
                 }
@@ -185,10 +203,22 @@ fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext, reporting: Reporting) -
                 .status()
                 .with_context(|| format!("failed to spawn command: {command}"))?;
             if !status.success() {
-                bail!("command exited with status {status}");
+                bail!("command exited with status {}", exit_status(&status));
             }
             Ok(())
         }
+    }
+}
+
+/// How a hook ended, without `ExitStatus`'s own wording.
+///
+/// Its `Display` is "exit status: 7", which lands in a sentence that already
+/// says "status" and reads as "status exit status: 7".
+fn exit_status(status: &std::process::ExitStatus) -> String {
+    match status.code() {
+        Some(code) => code.to_string(),
+        // Killed by a signal, where the default wording is the useful one.
+        None => status.to_string(),
     }
 }
 

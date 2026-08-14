@@ -99,7 +99,10 @@ pub fn run(args: AddArgs) -> Result<()> {
             &ctx,
             reporting,
         )
-        .context("the worktree was created, but a post_create hook failed")?;
+        // The hook's own error already names the phase. What it cannot say is
+        // that the worktree survives the failure, which is what decides
+        // whether you go and look at it or run the command again.
+        .with_context(|| format!("the worktree was created and is left at {}", path.display()))?;
     }
 
     if args.quiet {

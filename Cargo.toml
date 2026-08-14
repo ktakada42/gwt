@@ -2,7 +2,7 @@
 # The command is `gwt`; the crate needs another name because `gwt` and
 # `gwt-cli` are both taken on crates.io by unrelated projects.
 name = "gwt-rs"
-version = "1.4.0"
+version = "1.4.1"
 edition = "2021"
 rust-version = "1.85"
 description = "A friendly git worktree manager with automatic paths, hooks and shell integration"

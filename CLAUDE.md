@@ -73,3 +73,20 @@ docs-only commit instant. Do not reach for `--no-verify`; fix the check.
 Maintainer only. Pushing a `v*` tag builds the binaries, creates the GitHub
 Release, updates the Homebrew formula, and syncs `Cargo.toml`. The version
 string comes from `git describe`, so `Cargo.toml` does not need bumping first.
+
+**The tag annotation is the release notes**, so write it as the Markdown that
+should appear on the Releases page, and always tag with `--cleanup=verbatim`:
+
+```bash
+git tag -a --cleanup=verbatim -F - v2.1.0 <<'EOF'
+gwx v2.1.0
+
+## What changed
+...
+EOF
+```
+
+Without it, git's default cleanup treats every `##` heading as a comment and
+strips it, silently — the message keeps its prose and loses its structure, and
+nothing notices until the release is published. v2.1.0 was published that way
+and its notes had to be repaired by hand.

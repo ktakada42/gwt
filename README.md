@@ -100,8 +100,21 @@ cargo build --release
 ./target/release/gwx --help
 ```
 
-Requires Rust 1.85+ to build and Git 2.17+ at runtime. Linux and macOS are
-supported; on Windows the `symlink` hook needs developer mode or elevation.
+Requires Rust 1.85+ to build and Git 2.17+ at runtime.
+
+### Platforms
+
+Linux and macOS. Both are built and tested in CI on every commit.
+
+Windows is not supported natively: the picker draws to `/dev/tty`, and
+`shell-init` speaks bash, zsh and fish but not PowerShell, so `gwx list` would
+fall back to its plain table and `gwx cd` would only print a path.
+
+**On Windows, use the Linux build under WSL2** — that is a supported platform
+and needs nothing special. Keep the repository inside the WSL filesystem rather
+than under `/mnt/c`: crossing the boundary is slow, and Windows and Linux
+disagree about file modes and symlinks in ways that leave `git status` dirty on
+one side or the other.
 
 ### Shell integration
 

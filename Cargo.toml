@@ -9,6 +9,10 @@ repository = "https://github.com/ktakada42/gwx"
 readme = "README.md"
 keywords = ["git", "worktree", "cli", "development"]
 categories = ["command-line-utilities", "development-tools"]
+# The published crate is the source needed to build gwx. The recordings and
+# the machinery that makes them serve the README on GitHub, which reads them
+# from there rather than from the package.
+exclude = ["docs/", ".github/", ".githooks/", "codecov.yml", "deny.toml"]
 
 [[bin]]
 name = "gwx"

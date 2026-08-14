@@ -4,7 +4,7 @@
 [![Release](https://github.com/ktakada42/gwx/actions/workflows/release.yml/badge.svg)](https://github.com/ktakada42/gwx/actions/workflows/release.yml)
 [![codecov](https://codecov.io/gh/ktakada42/gwx/graph/badge.svg)](https://codecov.io/gh/ktakada42/gwx)
 [![GitHub release](https://img.shields.io/github/v/release/ktakada42/gwx)](https://github.com/ktakada42/gwx/releases/latest)
-[![License](https://img.shields.io/github/license/ktakada42/gwx)](LICENSE)
+[![License](https://img.shields.io/github/license/ktakada42/gwx)](https://github.com/ktakada42/gwx/blob/main/LICENSE)
 
 A friendly `git worktree` manager, written in Rust. The name is what it does:
 `git worktree` with the parts you would otherwise do by hand.
@@ -18,18 +18,18 @@ dependencies, and finally you `cd` into a directory you have to remember.
 when it does not exist, the worktree lands at a path derived from its name, and
 the hooks in `.gwx.toml` bring the `.env` and the dependencies along.
 
-![gwx add feature/auth creates the branch and the worktree, copies .env, links node_modules, prints the path, and gwx cd moves the shell into it](docs/demo/add.gif)
+![gwx add feature/auth creates the branch and the worktree, copies .env, links node_modules, prints the path, and gwx cd moves the shell into it](https://raw.githubusercontent.com/ktakada42/gwx/main/docs/demo/add.gif)
 
 **`gwx list`** — the picker. Type to filter, <kbd>Enter</kbd> to change into the
 worktree, <kbd>Ctrl</kbd>+<kbd>d</kbd> to remove it. `--plain` prints the table
 instead, for reading or piping.
 
-![gwx list opens a table of four worktrees with their HEAD and status, typing bil filters it to feature/billing, and Enter changes the shell into that worktree](docs/demo/list.gif)
+![gwx list opens a table of four worktrees with their HEAD and status, typing bil filters it to feature/billing, and Enter changes the shell into that worktree](https://raw.githubusercontent.com/ktakada42/gwx/main/docs/demo/list.gif)
 
 **`gwx remove <name>`** — the worktree, and with `--with-branch` the branch it
 was for, as long as it is merged.
 
-![gwx list --plain shows four worktrees, gwx remove feature/billing --with-branch removes the worktree and deletes the branch, and the next listing is down to three](docs/demo/remove.gif)
+![gwx list --plain shows four worktrees, gwx remove feature/billing --with-branch removes the worktree and deletes the branch, and the next listing is down to three](https://raw.githubusercontent.com/ktakada42/gwx/main/docs/demo/remove.gif)
 
 > [!NOTE]
 > `gwx` is inspired by [satococoa/wtp](https://github.com/satococoa/wtp), a Go
@@ -511,4 +511,4 @@ the columns out of alignment.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/ktakada42/gwx/blob/main/LICENSE).

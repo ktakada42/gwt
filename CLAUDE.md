@@ -62,6 +62,11 @@ docs-only commit instant. Do not reach for `--no-verify`; fix the check.
   render double width and break the column alignment.
 - End-to-end tests in `tests/cli.rs` drive the real binary against real
   repositories. Prefer them over mocking git.
+- Documentation is split on purpose: README is what someone reads once before
+  installing, `docs/` is what they come back to. A new flag or hook goes in
+  `docs/`; the README grows only when what the tool *is* changes. Its links out
+  are absolute GitHub URLs, because crates.io renders the same file and
+  relative ones break there.
 
 ## Releasing
 

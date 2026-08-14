@@ -1,7 +1,7 @@
-//! `gwt cd` — move into a worktree.
+//! `gwx cd` — move into a worktree.
 //!
 //! With no argument this goes to the main worktree, mirroring how a bare `cd`
-//! takes you home. Choosing from a list is `gwt list`.
+//! takes you home. Choosing from a list is `gwx list`.
 
 use anyhow::Result;
 

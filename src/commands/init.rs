@@ -1,4 +1,4 @@
-//! `gwt init` — drop a `.gwt.toml` template into the main worktree.
+//! `gwx init` — drop a `.gwx.toml` template into the main worktree.
 
 use anyhow::{bail, Context, Result};
 

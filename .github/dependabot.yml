@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # gwt ships prebuilt binaries, so a dependency left behind is shipped to
+  # gwx ships prebuilt binaries, so a dependency left behind is shipped to
   # everyone who installs it.
   - package-ecosystem: cargo
     directory: /

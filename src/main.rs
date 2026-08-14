@@ -18,12 +18,12 @@ fn main() {
     // before anything is written to stdout.
     clap_complete::CompleteEnv::with_factory(Cli::command)
         .var(COMPLETE_VAR)
-        .bin("gwt")
-        .completer("gwt")
+        .bin("gwx")
+        .completer("gwx")
         .complete();
 
     if let Err(err) = run() {
-        eprintln!("gwt: {err:#}");
+        eprintln!("gwx: {err:#}");
         std::process::exit(1);
     }
 }

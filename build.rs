@@ -15,7 +15,7 @@ fn main() {
         .map(|s| s.strip_prefix('v').unwrap_or(&s).to_string())
         .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
 
-    println!("cargo:rustc-env=GWT_VERSION={version}");
+    println!("cargo:rustc-env=GWX_VERSION={version}");
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs");
 }

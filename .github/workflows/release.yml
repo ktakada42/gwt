@@ -50,8 +50,8 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          ARCHIVE="gwt-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
-          tar -czf "$ARCHIVE" -C target/${{ matrix.target }}/release gwt
+          ARCHIVE="gwx-${{ github.ref_name }}-${{ matrix.target }}.tar.gz"
+          tar -czf "$ARCHIVE" -C target/${{ matrix.target }}/release gwx
           echo "ARCHIVE=$ARCHIVE" >> "$GITHUB_ENV"
 
       - name: Upload artifact
@@ -123,7 +123,7 @@ jobs:
           VERSION="${{ github.ref_name }}"
           VER="${VERSION#v}"
           for target in aarch64-apple-darwin x86_64-apple-darwin aarch64-unknown-linux-musl x86_64-unknown-linux-musl; do
-            sha=$(sha256sum "gwt-${VERSION}-${target}.tar.gz" | awk '{print $1}')
+            sha=$(sha256sum "gwx-${VERSION}-${target}.tar.gz" | awk '{print $1}')
             key="SHA_$(echo "${target}" | tr '-' '_')"
             echo "${key}=${sha}" >> "$GITHUB_ENV"
           done
@@ -148,54 +148,58 @@ jobs:
 
       - name: Update Formula
         run: |
-          cat > homebrew-tap/Formula/gwt.rb << EOF
-          class Gwt < Formula
+          cat > homebrew-tap/Formula/gwx.rb << EOF
+          class Gwx < Formula
             desc "Friendly git worktree manager with automatic paths, hooks and shell integration"
-            homepage "https://github.com/ktakada42/gwt"
+            homepage "https://github.com/ktakada42/gwx"
             version "${VER}"
             license "MIT"
 
+            # gwx was called gwt up to v1.4.1. This migrates an installed gwt
+            # on \`brew upgrade\` rather than leaving it frozen at the old name.
+            oldnames "gwt"
+
             on_macos do
               if Hardware::CPU.arm?
-                url "https://github.com/ktakada42/gwt/releases/download/${VERSION}/gwt-${VERSION}-aarch64-apple-darwin.tar.gz"
+                url "https://github.com/ktakada42/gwx/releases/download/${VERSION}/gwx-${VERSION}-aarch64-apple-darwin.tar.gz"
                 sha256 "${SHA_aarch64_apple_darwin}"
               else
-                url "https://github.com/ktakada42/gwt/releases/download/${VERSION}/gwt-${VERSION}-x86_64-apple-darwin.tar.gz"
+                url "https://github.com/ktakada42/gwx/releases/download/${VERSION}/gwx-${VERSION}-x86_64-apple-darwin.tar.gz"
                 sha256 "${SHA_x86_64_apple_darwin}"
               end
             end
 
             on_linux do
               if Hardware::CPU.arm?
-                url "https://github.com/ktakada42/gwt/releases/download/${VERSION}/gwt-${VERSION}-aarch64-unknown-linux-musl.tar.gz"
+                url "https://github.com/ktakada42/gwx/releases/download/${VERSION}/gwx-${VERSION}-aarch64-unknown-linux-musl.tar.gz"
                 sha256 "${SHA_aarch64_unknown_linux_musl}"
               else
-                url "https://github.com/ktakada42/gwt/releases/download/${VERSION}/gwt-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
+                url "https://github.com/ktakada42/gwx/releases/download/${VERSION}/gwx-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
                 sha256 "${SHA_x86_64_unknown_linux_musl}"
               end
             end
 
             def install
-              bin.install "gwt"
-              generate_completions_from_executable(bin/"gwt", "completion")
-              system bin/"gwt", "man", "--out-dir", buildpath/"man"
+              bin.install "gwx"
+              generate_completions_from_executable(bin/"gwx", "completion")
+              system bin/"gwx", "man", "--out-dir", buildpath/"man"
               man1.install Dir[buildpath/"man/*.1"]
             end
 
             def caveats
               <<~EOS
-                \`gwt cd\` needs a shell function to change the directory of your shell.
+                \`gwx cd\` needs a shell function to change the directory of your shell.
                 Add one of these to your shell config:
 
-                  bash:  eval "\$(gwt shell-init bash)"
-                  zsh:   eval "\$(gwt shell-init zsh)"
-                  fish:  gwt shell-init fish | source
+                  bash:  eval "\$(gwx shell-init bash)"
+                  zsh:   eval "\$(gwx shell-init zsh)"
+                  fish:  gwx shell-init fish | source
               EOS
             end
 
             test do
-              assert_match version.to_s, shell_output("#{bin}/gwt --version")
-              assert_match "COMPLETE", shell_output("#{bin}/gwt completion zsh")
+              assert_match version.to_s, shell_output("#{bin}/gwx --version")
+              assert_match "COMPLETE", shell_output("#{bin}/gwx completion zsh")
             end
           end
           EOF
@@ -205,6 +209,9 @@ jobs:
           cd homebrew-tap
           git config user.name  "${{ steps.tap-token.outputs.app-slug }}[bot]"
           git config user.email "${{ steps.tap-token.outputs.app-slug }}[bot]@users.noreply.github.com"
-          git add Formula/gwt.rb
-          git commit -m "gwt ${VER}"
+          # The old formula would otherwise sit next to the new one, still
+          # offering v1.4.1 under a name that no longer exists.
+          git rm -q --ignore-unmatch Formula/gwt.rb
+          git add Formula/gwx.rb
+          git commit -m "gwx ${VER}"
           git push

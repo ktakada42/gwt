@@ -1,4 +1,4 @@
-//! Execution of the hooks declared in `.gwt.toml`.
+//! Execution of the hooks declared in `.gwx.toml`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -21,15 +21,15 @@ impl HookContext {
     fn env(&self) -> Vec<(&'static str, String)> {
         vec![
             (
-                "GWT_MAIN_WORKTREE",
+                "GWX_MAIN_WORKTREE",
                 self.main_worktree.display().to_string(),
             ),
             (
-                "GWT_WORKTREE_PATH",
+                "GWX_WORKTREE_PATH",
                 self.worktree_path.display().to_string(),
             ),
-            ("GWT_WORKTREE_NAME", self.name.clone()),
-            ("GWT_BRANCH", self.branch.clone()),
+            ("GWX_WORKTREE_NAME", self.name.clone()),
+            ("GWX_BRANCH", self.branch.clone()),
         ]
     }
 }
@@ -216,7 +216,7 @@ fn tail(stderr: &[u8]) -> String {
 ///
 /// A hook runs *in* the new worktree, so it starts without the variables that
 /// would point git somewhere else — otherwise `git submodule update` in a
-/// post_create hook would quietly operate on whatever repository invoked gwt.
+/// post_create hook would quietly operate on whatever repository invoked gwx.
 #[cfg(unix)]
 fn shell_command(command: &str) -> Command {
     let mut cmd = Command::new("/bin/sh");
@@ -524,7 +524,7 @@ mod tests {
 
         run_one(
             &Hook::Command {
-                command: "printf %s \"$GWT_BRANCH\" > marker".into(),
+                command: "printf %s \"$GWX_BRANCH\" > marker".into(),
                 env: Default::default(),
                 work_dir: None,
             },

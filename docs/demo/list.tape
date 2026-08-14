@@ -1,4 +1,4 @@
-# `gwt list`: the picker, filtered down to one worktree and entered with
+# `gwx list`: the picker, filtered down to one worktree and entered with
 # Enter — the prompt at the end is the whole point.
 
 Source common.tape
@@ -15,7 +15,7 @@ Type "bash /demo/seed.sh && clear" Enter
 Show
 
 Sleep 1s
-Type "gwt list"
+Type "gwx list"
 Sleep 500ms
 Enter
 Sleep 2.5s

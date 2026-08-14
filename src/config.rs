@@ -1,4 +1,4 @@
-//! `.gwt.toml` — per-repository configuration.
+//! `.gwx.toml` — per-repository configuration.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -6,7 +6,14 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-pub const CONFIG_FILE: &str = ".gwt.toml";
+pub const CONFIG_FILE: &str = ".gwx.toml";
+
+/// What the file was called when the command was called `gwt`, up to v1.4.1.
+///
+/// Reading it would be the friendlier thing to do, but a repository that keeps
+/// working under a name gwx does not use is a repository nobody renames. It is
+/// reported instead, once, with the new name to move it to.
+pub const LEGACY_CONFIG_FILE: &str = ".gwt.toml";
 
 /// Values accepted for the top-level `version` key.
 const SUPPORTED_VERSIONS: &[&str] = &["1", "1.0"];
@@ -109,7 +116,7 @@ impl Config {
         main_worktree.join(CONFIG_FILE)
     }
 
-    /// Loads `.gwt.toml` from the main worktree, falling back to defaults when
+    /// Loads `.gwx.toml` from the main worktree, falling back to defaults when
     /// the file does not exist.
     pub fn load(main_worktree: &Path) -> Result<Self> {
         let path = Self::path_in(main_worktree);
@@ -117,7 +124,18 @@ impl Config {
             Ok(text) => {
                 Self::parse(&text).with_context(|| format!("failed to parse {}", path.display()))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let legacy = main_worktree.join(LEGACY_CONFIG_FILE);
+                if legacy.exists() {
+                    bail!(
+                        "found {} but this is gwx: rename it to {}\n\
+                         Hooks also read GWX_* rather than GWT_* now.",
+                        legacy.display(),
+                        CONFIG_FILE
+                    );
+                }
+                Ok(Self::default())
+            }
             Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
         }
     }
@@ -167,8 +185,8 @@ pub fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-pub const TEMPLATE: &str = r#"# gwt configuration
-# Docs: https://github.com/ktakada42/gwt
+pub const TEMPLATE: &str = r#"# gwx configuration
+# Docs: https://github.com/ktakada42/gwx
 version = "1"
 
 [defaults]
@@ -179,7 +197,7 @@ base_dir = "../worktrees"
 # main worktree).
 # [[hooks.pre_create]]
 # type = "command"
-# command = "echo creating $GWT_BRANCH"
+# command = "echo creating $GWX_BRANCH"
 
 # Hooks run after the worktree is created, inside the new worktree.
 # [[hooks.post_create]]
@@ -207,10 +225,10 @@ base_dir = "../worktrees"
 # command = "docker compose down"
 
 # Hooks run after the worktree is gone (command hooks only, run in the main
-# worktree). GWT_WORKTREE_PATH still names the directory that was removed.
+# worktree). GWX_WORKTREE_PATH still names the directory that was removed.
 # [[hooks.post_remove]]
 # type = "command"
-# command = "rm -rf \"$GWT_MAIN_WORKTREE/.cache/$GWT_WORKTREE_NAME\""
+# command = "rm -rf \"$GWX_MAIN_WORKTREE/.cache/$GWX_WORKTREE_NAME\""
 "#;
 
 #[cfg(test)]

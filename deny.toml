@@ -1,6 +1,6 @@
 # License policy for the dependency tree.
 #
-# gwt is MIT and ships prebuilt binaries, so every dependency's license travels
+# gwx is MIT and ships prebuilt binaries, so every dependency's license travels
 # with the binary to whoever installs it. A copyleft crate arriving through a
 # routine Dependabot bump would make those binaries undistributable, and
 # nothing else in CI would notice.

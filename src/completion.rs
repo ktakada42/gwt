@@ -11,12 +11,12 @@ use clap_complete::CompletionCandidate;
 use crate::git;
 use crate::repo::{Repo, MAIN_ALIAS};
 
-/// Worktrees `gwt cd` accepts, including `@` for the main worktree.
+/// Worktrees `gwx cd` accepts, including `@` for the main worktree.
 pub fn worktrees() -> Vec<CompletionCandidate> {
     candidates(false)
 }
 
-/// Worktrees `gwt remove` accepts — everything but the main worktree.
+/// Worktrees `gwx remove` accepts — everything but the main worktree.
 pub fn removable_worktrees() -> Vec<CompletionCandidate> {
     candidates(true)
 }
@@ -47,11 +47,11 @@ fn candidates(skip_main: bool) -> Vec<CompletionCandidate> {
         .collect()
 }
 
-/// Branches `gwt add` can turn into a worktree.
+/// Branches `gwx add` can turn into a worktree.
 ///
-/// Branches that already have a worktree are left out — `gwt add` would refuse
+/// Branches that already have a worktree are left out — `gwx add` would refuse
 /// them anyway. Remote-only branches are offered under their short name, which
-/// is exactly what `gwt add` expects.
+/// is exactly what `gwx add` expects.
 pub fn addable_branches() -> Vec<CompletionCandidate> {
     let Ok(repo) = Repo::discover() else {
         return Vec::new();
@@ -68,7 +68,7 @@ pub fn addable_branches() -> Vec<CompletionCandidate> {
         .map(|b| CompletionCandidate::new(b).help(Some("local branch".into())))
         .collect();
 
-    // A branch name can live on several remotes; `gwt add` takes the short name,
+    // A branch name can live on several remotes; `gwx add` takes the short name,
     // so those collapse into one candidate rather than appearing once per remote.
     let mut by_short: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for (full, short) in git::remote_branches(&repo.cwd).unwrap_or_default() {
@@ -82,7 +82,7 @@ pub fn addable_branches() -> Vec<CompletionCandidate> {
         let help = if remotes.len() == 1 {
             remotes[0].clone()
         } else {
-            // `gwt add` cannot pick between them; say so instead of looking usable.
+            // `gwx add` cannot pick between them; say so instead of looking usable.
             format!("{} — ambiguous, needs --from", remotes.join(", "))
         };
         candidates.push(CompletionCandidate::new(short).help(Some(help.into())));
@@ -90,7 +90,7 @@ pub fn addable_branches() -> Vec<CompletionCandidate> {
     candidates
 }
 
-/// Refs `gwt add --from` accepts: branches, tags and remote-tracking branches.
+/// Refs `gwx add --from` accepts: branches, tags and remote-tracking branches.
 pub fn start_points() -> Vec<CompletionCandidate> {
     let Ok(repo) = Repo::discover() else {
         return Vec::new();

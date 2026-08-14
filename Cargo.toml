@@ -1,19 +1,17 @@
 [package]
-# The command is `gwt`; the crate needs another name because `gwt` and
-# `gwt-cli` are both taken on crates.io by unrelated projects.
-name = "gwt-rs"
+name = "gwx"
 version = "1.4.1"
 edition = "2021"
 rust-version = "1.85"
 description = "A friendly git worktree manager with automatic paths, hooks and shell integration"
 license = "MIT"
-repository = "https://github.com/ktakada42/gwt"
+repository = "https://github.com/ktakada42/gwx"
 readme = "README.md"
 keywords = ["git", "worktree", "cli", "development"]
 categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
-name = "gwt"
+name = "gwx"
 path = "src/main.rs"
 
 [dependencies]

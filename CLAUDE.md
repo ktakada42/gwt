@@ -1,4 +1,4 @@
-# gwt
+# gwx
 
 A `git worktree` manager written in Rust. See README.md for what it does.
 

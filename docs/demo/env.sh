@@ -3,11 +3,11 @@
 
 bash /demo/setup.sh
 
-# `\w` is what makes the demos worth watching: `gwt cd` and the picker move the
+# `\w` is what makes the demos worth watching: `gwx cd` and the picker move the
 # shell, and the prompt is where you see it happen.
 export PS1='\[\e[1;36m\]\w\[\e[0m\] $ '
 
-eval "$(gwt shell-init bash)"
+eval "$(gwx shell-init bash)"
 
 cd ~/repo
 clear

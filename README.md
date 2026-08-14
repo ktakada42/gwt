@@ -1,82 +1,78 @@
-# gwt
+# gwx
 
-[![CI](https://github.com/ktakada42/gwt/actions/workflows/ci.yml/badge.svg)](https://github.com/ktakada42/gwt/actions/workflows/ci.yml)
-[![Release](https://github.com/ktakada42/gwt/actions/workflows/release.yml/badge.svg)](https://github.com/ktakada42/gwt/actions/workflows/release.yml)
-[![codecov](https://codecov.io/gh/ktakada42/gwt/graph/badge.svg)](https://codecov.io/gh/ktakada42/gwt)
-[![GitHub release](https://img.shields.io/github/v/release/ktakada42/gwt)](https://github.com/ktakada42/gwt/releases/latest)
-[![License](https://img.shields.io/github/license/ktakada42/gwt)](LICENSE)
+[![CI](https://github.com/ktakada42/gwx/actions/workflows/ci.yml/badge.svg)](https://github.com/ktakada42/gwx/actions/workflows/ci.yml)
+[![Release](https://github.com/ktakada42/gwx/actions/workflows/release.yml/badge.svg)](https://github.com/ktakada42/gwx/actions/workflows/release.yml)
+[![codecov](https://codecov.io/gh/ktakada42/gwx/graph/badge.svg)](https://codecov.io/gh/ktakada42/gwx)
+[![GitHub release](https://img.shields.io/github/v/release/ktakada42/gwx)](https://github.com/ktakada42/gwx/releases/latest)
+[![License](https://img.shields.io/github/license/ktakada42/gwx)](LICENSE)
 
 A friendly `git worktree` manager, written in Rust.
 
 `git worktree` is great, but it makes you repeat yourself: you type the branch
 name, then a path for it, then you copy over your `.env`, then you reinstall
 dependencies, and finally you `cd` into a directory you have to remember.
-`gwt` takes care of all of that.
+`gwx` takes care of all of that.
 
-**`gwt add <branch>`** — a branch name is all it takes. The branch is created
+**`gwx add <branch>`** — a branch name is all it takes. The branch is created
 when it does not exist, the worktree lands at a path derived from its name, and
-the hooks in `.gwt.toml` bring the `.env` and the dependencies along.
+the hooks in `.gwx.toml` bring the `.env` and the dependencies along.
 
-![gwt add feature/auth creates the branch and the worktree, copies .env, links node_modules, prints the path, and gwt cd moves the shell into it](docs/demo/add.gif)
+![gwx add feature/auth creates the branch and the worktree, copies .env, links node_modules, prints the path, and gwx cd moves the shell into it](docs/demo/add.gif)
 
-**`gwt list`** — the picker. Type to filter, <kbd>Enter</kbd> to change into the
+**`gwx list`** — the picker. Type to filter, <kbd>Enter</kbd> to change into the
 worktree, <kbd>Ctrl</kbd>+<kbd>d</kbd> to remove it. `--plain` prints the table
 instead, for reading or piping.
 
-![gwt list opens a table of four worktrees with their HEAD and status, typing bil filters it to feature/billing, and Enter changes the shell into that worktree](docs/demo/list.gif)
+![gwx list opens a table of four worktrees with their HEAD and status, typing bil filters it to feature/billing, and Enter changes the shell into that worktree](docs/demo/list.gif)
 
-**`gwt remove <name>`** — the worktree, and with `--with-branch` the branch it
+**`gwx remove <name>`** — the worktree, and with `--with-branch` the branch it
 was for, as long as it is merged.
 
-![gwt list --plain shows four worktrees, gwt remove feature/billing --with-branch removes the worktree and deletes the branch, and the next listing is down to three](docs/demo/remove.gif)
+![gwx list --plain shows four worktrees, gwx remove feature/billing --with-branch removes the worktree and deletes the branch, and the next listing is down to three](docs/demo/remove.gif)
 
 > [!NOTE]
-> `gwt` is inspired by [satococoa/wtp](https://github.com/satococoa/wtp), a Go
-> tool with the same goal that is no longer actively maintained. `gwt` is an
+> `gwx` is inspired by [satococoa/wtp](https://github.com/satococoa/wtp), a Go
+> tool with the same goal that is no longer actively maintained. `gwx` is an
 > independent reimplementation in Rust — the configuration file and the CLI are
 > similar in spirit but not compatible.
 
 ## Features
 
-- **One command per branch.** `gwt add <branch>` creates the worktree at a
+- **One command per branch.** `gwx add <branch>` creates the worktree at a
   predictable path, so you never type a directory name.
 - **Branches are created when missing.** An existing local branch is checked
   out, a remote-only branch is tracked, and anything else becomes a new branch.
 - **Hooks.** Copy files, create symlinks and run commands around creation and
-  removal, configured per repository in `.gwt.toml` — so the containers and
+  removal, configured per repository in `.gwx.toml` — so the containers and
   caches a worktree brought up leave with it.
-- **List and navigate.** `gwt list` opens an interactive list — move, filter,
+- **List and navigate.** `gwx list` opens an interactive list — move, filter,
   press <kbd>Enter</kbd> to go there or <kbd>Ctrl</kbd>+<kbd>d</kbd> to delete.
-  `gwt cd <name>` jumps straight to one, with tab completion.
+  `gwx cd <name>` jumps straight to one, with tab completion.
 
 ## Installation
 
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install ktakada42/tap/gwt
+brew install ktakada42/tap/gwx
 ```
 
 To upgrade:
 
 ```bash
-brew upgrade gwt
+brew upgrade gwx
 ```
-
-> [!WARNING]
-> Install with the full `ktakada42/tap/gwt` name. Plain `brew install gwt`
-> pulls `gwt` from homebrew-core, which is Google Web Toolkit.
 
 ### Shell script (macOS / Linux)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ktakada42/gwt/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ktakada42/gwx/main/install.sh | sh
 ```
 
 Installs to `~/.local/bin` by default. Override with `INSTALL_DIR`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ktakada42/gwt/main/install.sh | INSTALL_DIR=/usr/local/bin sh
+curl -fsSL https://raw.githubusercontent.com/ktakada42/gwx/main/install.sh | INSTALL_DIR=/usr/local/bin sh
 ```
 
 ### cargo install
@@ -84,89 +80,88 @@ curl -fsSL https://raw.githubusercontent.com/ktakada42/gwt/main/install.sh | INS
 Requires a [Rust](https://rustup.rs) toolchain.
 
 ```bash
-cargo install --git https://github.com/ktakada42/gwt
+cargo install --git https://github.com/ktakada42/gwx
 ```
 
-> [!WARNING]
-> Do not run `cargo install gwt`. The crate name `gwt` on crates.io belongs to
-> an unrelated project — this one is packaged as `gwt-rs` and installs a
-> command called `gwt`.
+`gwx` is not on crates.io, so `--git` is the way in for now.
 
 ### Build from source
 
 ```bash
-git clone https://github.com/ktakada42/gwt
-cd gwt
+git clone https://github.com/ktakada42/gwx
+cd gwx
 cargo build --release
-./target/release/gwt --help
+./target/release/gwx --help
 ```
 
 Requires Rust 1.85+ to build and Git 2.17+ at runtime. Linux and macOS are
 supported; on Windows the `symlink` hook needs developer mode or elevation.
 
+### Upgrading from `gwt`
+
+This tool was called `gwt` up to v1.4.1. The old name was an abbreviation of
+the command it wraps, so it promised plain `git worktree` and delivered
+something else — and oh-my-zsh's `git` plugin defines `alias gwt='git worktree'`,
+which hid the tool outright for anyone using it. Only the names changed in
+v2.0.0; every command behaves as it did.
+
+| Was | Is |
+| --- | --- |
+| `gwt` | `gwx` |
+| `.gwt.toml` | `.gwx.toml` |
+| `GWT_BRANCH`, `GWT_WORKTREE_PATH`, … | `GWX_BRANCH`, `GWX_WORKTREE_PATH`, … |
+
+Homebrew migrates on `brew upgrade`. In each repository, rename `.gwt.toml` to
+`.gwx.toml` — gwx says so rather than ignoring the file if it finds the old
+name. Then swap the `eval` line in your shell rc file, and delete the
+`unalias gwt` line if you had one: with a name of its own, there is no alias
+left to fight.
+
 ### Shell integration
 
-A process cannot change the directory of the shell that started it, so `gwt cd`
+A process cannot change the directory of the shell that started it, so `gwx cd`
 prints a path and a small shell function does the actual `cd`. The same snippet
 registers tab completion for worktree and branch names.
 
 ```bash
 # ~/.bashrc
-eval "$(gwt shell-init bash)"
+eval "$(gwx shell-init bash)"
 
 # ~/.zshrc  (after compinit)
-eval "$(gwt shell-init zsh)"
+eval "$(gwx shell-init zsh)"
 
 # ~/.config/fish/config.fish
-gwt shell-init fish | source
+gwx shell-init fish | source
 ```
 
-Homebrew installs the completion scripts for you, but `gwt cd` still needs the
+Homebrew installs the completion scripts for you, but `gwx cd` still needs the
 snippet above.
-
-#### Using oh-my-zsh?
-
-Its `git` plugin defines `alias gwt='git worktree'`, which hides this tool —
-zsh expands aliases before it looks for functions or commands. The alias even
-swallows the `gwt` inside the snippet above, so sourcing it reports
-``unknown subcommand: `shell-init'`` (or `not a git repository` when you are
-outside a repo). Drop the alias first:
-
-```zsh
-# ~/.zshrc, after `source $ZSH/oh-my-zsh.sh`
-unalias gwt 2>/dev/null
-eval "$(gwt shell-init zsh)"
-```
-
-Order matters: the `unalias` has to come first. If one `.zshrc` is shared
-across machines, guard the second line with `command -v gwt >/dev/null &&` so
-hosts without gwt stay quiet.
 
 Without the integration everything still works:
 
 ```bash
-cd "$(gwt cd feature/auth)"
+cd "$(gwx cd feature/auth)"
 ```
 
 ### Completion
 
-Completion is computed by `gwt` itself while you type, so it knows about your
+Completion is computed by `gwx` itself while you type, so it knows about your
 repository:
 
 ```console
-$ gwt cd <TAB>
+$ gwx cd <TAB>
 @                    -- main worktree — /home/me/repo
 feature/auth         -- /home/me/worktrees/feature/auth
 
-$ gwt add <TAB>
+$ gwx add <TAB>
 hotfix/login         -- local branch
 release/2.1          -- origin/release/2.1
 
-$ gwt remove <TAB>   # every worktree except the main one
-$ gwt add x --from <TAB>   # branches, tags and remote-tracking branches
+$ gwx remove <TAB>   # every worktree except the main one
+$ gwx add x --from <TAB>   # branches, tags and remote-tracking branches
 ```
 
-`gwt add` only offers branches that do not have a worktree yet — the ones it
+`gwx add` only offers branches that do not have a worktree yet — the ones it
 would actually accept — and remote-only branches under the short name you would
 type. Outside a repository nothing is offered instead of an error.
 
@@ -174,25 +169,25 @@ type. Outside a repository nothing is offered instead of an error.
 
 | Command | What it does |
 | --- | --- |
-| `gwt add <branch>` | Create a worktree for `<branch>`, creating the branch if needed |
-| `gwt list` (`ls`) | Pick a worktree interactively; `--plain` or `--paths` for text |
-| `gwt cd [<name>]` | Move into a worktree; with no argument, to the main one |
-| `gwt remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
-| `gwt init` | Write a `.gwt.toml` template |
-| `gwt shell-init <shell>` | Print the `cd` function and the completion hookup |
-| `gwt completion <shell>` | Print the completion hookup only |
+| `gwx add <branch>` | Create a worktree for `<branch>`, creating the branch if needed |
+| `gwx list` (`ls`) | Pick a worktree interactively; `--plain` or `--paths` for text |
+| `gwx cd [<name>]` | Move into a worktree; with no argument, to the main one |
+| `gwx remove <name>` (`rm`) | Remove a worktree, optionally with its branch |
+| `gwx init` | Write a `.gwx.toml` template |
+| `gwx shell-init <shell>` | Print the `cd` function and the completion hookup |
+| `gwx completion <shell>` | Print the completion hookup only |
 
 `<name>` is matched against branch names first, then paths below `base_dir`,
-then directory names — so `gwt cd feature/auth` and `gwt cd auth` both work
+then directory names — so `gwx cd feature/auth` and `gwx cd auth` both work
 when they are unambiguous.
 
-A bare `gwt cd` goes to the main worktree, the way a bare `cd` takes you home.
-`gwt cd @` says the same thing explicitly. To choose from a list instead, use
-`gwt list`.
+A bare `gwx cd` goes to the main worktree, the way a bare `cd` takes you home.
+`gwx cd @` says the same thing explicitly. To choose from a list instead, use
+`gwx list`.
 
 ### Picking a worktree interactively
 
-`gwt list` opens a list you can move through:
+`gwx list` opens a list you can move through:
 
 ```
   WORKTREE         HEAD     STATUS
@@ -217,7 +212,7 @@ Each row says what you need before acting on it: `dirty` for uncommitted
 changes, `merged` when the branch is already in the main worktree's `HEAD`.
 The `STATUS` column fills in a moment after the list appears — working it out
 costs a `git status` per worktree, which the list does not wait for.
-The path is not shown — gwt derives it from the branch name, so it only
+The path is not shown — gwx derives it from the branch name, so it only
 repeated what the first column already said.
 
 Each part of the screen is told apart by a different attribute rather than by
@@ -262,23 +257,23 @@ Remove this worktree?
 ```
 
 The main worktree and the one you are standing in are refused outright, same as
-`gwt remove`.
+`gwx remove`.
 
 Two cases skip the picker entirely: when there is no terminal to draw on (a
 script, a pipe, CI) and when the repository has no worktree other than the main
-one. `gwt list` then prints its table, exactly as before, so existing scripts
-keep working. Ask for text in a terminal with `gwt list --plain`, or
-`gwt list --paths` for one path per line.
+one. `gwx list` then prints its table, exactly as before, so existing scripts
+keep working. Ask for text in a terminal with `gwx list --plain`, or
+`gwx list --paths` for one path per line.
 
 The picker hands the directory to the shell function through a temporary file
-named by `GWT_CD_FILE`, which leaves stdout free for `gwt list` to print on.
-That means `gwt shell-init` changed in v1.1.0: after upgrading, start a new
-shell (or re-source your rc file) before `gwt list` can move you.
+named by `GWX_CD_FILE`, which leaves stdout free for `gwx list` to print on.
+That means `gwx shell-init` changed in v1.1.0: after upgrading, start a new
+shell (or re-source your rc file) before `gwx list` can move you.
 
-### `gwt add`
+### `gwx add`
 
 ```
-gwt add <branch> [--from <commit-ish>] [--path <path>]
+gwx add <branch> [--from <commit-ish>] [--path <path>]
                  [--no-create] [--no-hooks] [--force] [--quiet]
 ```
 
@@ -294,13 +289,13 @@ the generated path, and `--quiet` to print only the resulting path — handy in
 scripts:
 
 ```bash
-cd "$(gwt add feature/auth --quiet)"
+cd "$(gwx add feature/auth --quiet)"
 ```
 
-### `gwt remove`
+### `gwx remove`
 
 ```
-gwt remove <name> [--with-branch] [--force] [--no-hooks]
+gwx remove <name> [--with-branch] [--force] [--no-hooks]
 ```
 
 Refuses to delete the main worktree, the worktree you are standing in, or one
@@ -312,9 +307,9 @@ worktree.
 
 ## Configuration
 
-`gwt` reads `.gwt.toml` from the **main worktree** — the original clone — no
+`gwx` reads `.gwx.toml` from the **main worktree** — the original clone — no
 matter which worktree you run it from, so hook paths always mean the same
-thing. Run `gwt init` to get a commented template. Everything is optional.
+thing. Run `gwx init` to get a commented template. Everything is optional.
 
 ```toml
 version = "1"
@@ -355,7 +350,7 @@ command = "docker compose down"
 # Runs once the worktree is gone, in the main worktree. Commands only.
 [[hooks.post_remove]]
 type = "command"
-command = "rm -rf \"$GWT_MAIN_WORKTREE/.cache/$GWT_WORKTREE_NAME\""
+command = "rm -rf \"$GWX_MAIN_WORKTREE/.cache/$GWX_WORKTREE_NAME\""
 ```
 
 With `base_dir = "../worktrees"`, a repository at `/home/me/repo` puts the
@@ -376,7 +371,7 @@ so it is the only one that takes `copy` and `symlink` hooks. The other three
 take `command` hooks, which is what stopping a container or deleting a volume
 needs anyway.
 
-The two removal phases run for `gwt remove` and for deleting from the picker
+The two removal phases run for `gwx remove` and for deleting from the picker
 alike — a worktree brought down by <kbd>Ctrl</kbd>+<kbd>d</kbd> is no less
 removed. The picker owns the screen while it runs, so it keeps what hooks print
 to itself and shows only what a failing one said last.
@@ -399,7 +394,7 @@ to itself and shows only what a failing one said last.
 
 > [!TIP]
 > **On macOS a `copy` is a clone.** APFS shares the blocks between the two
-> directories until one of them is written to, and gwt clones the whole tree in
+> directories until one of them is written to, and gwx clones the whole tree in
 > a single `clonefile` call. A `node_modules` of 10,000 files took **0.13s**,
 > against 2.0s for the same copy made file by file — and neither one spends the
 > disk space. On Linux a `copy` is a real copy of both the time and the space.
@@ -424,17 +419,17 @@ Every hook sees these environment variables:
 
 | Variable | Value |
 | --- | --- |
-| `GWT_BRANCH` | Branch of the worktree, empty when it has none |
-| `GWT_WORKTREE_NAME` | Name of the worktree |
-| `GWT_WORKTREE_PATH` | Absolute path of the worktree — in `post_remove`, of the directory that was just deleted |
-| `GWT_MAIN_WORKTREE` | Absolute path of the main worktree |
+| `GWX_BRANCH` | Branch of the worktree, empty when it has none |
+| `GWX_WORKTREE_NAME` | Name of the worktree |
+| `GWX_WORKTREE_PATH` | Absolute path of the worktree — in `post_remove`, of the directory that was just deleted |
+| `GWX_MAIN_WORKTREE` | Absolute path of the main worktree |
 
 A failing hook stops the sequence and makes the command exit non-zero, and the
 phase decides what that means. A `pre_create` or `pre_remove` failure blocks the
 operation: nothing is created, nothing is deleted. By the time `post_create` or
 `post_remove` fails the worktree has already been created or removed, so the
-error says so and the state stands. Pass `--no-hooks` to `gwt add` or
-`gwt remove` to skip them entirely.
+error says so and the state stands. Pass `--no-hooks` to `gwx add` or
+`gwx remove` to skip them entirely.
 
 ## Contributing
 
@@ -447,8 +442,8 @@ reading the repository can follow along.
 Requires Rust 1.85+ and Git 2.17+.
 
 ```bash
-git clone https://github.com/ktakada42/gwt
-cd gwt
+git clone https://github.com/ktakada42/gwx
+cd gwx
 cargo test           # unit tests plus end-to-end tests against real repos
 ```
 
@@ -462,7 +457,7 @@ To try your build without disturbing an installed copy:
 ```bash
 cargo build --release
 export PATH="$PWD/target/release:$PATH"   # this shell only
-eval "$(gwt shell-init zsh)"
+eval "$(gwx shell-init zsh)"
 ```
 
 ### Before opening a pull request
@@ -492,14 +487,14 @@ Commit messages follow [Conventional Commits](https://www.conventionalcommits.or
 already says what.
 
 Adding a dependency pulls in two more checks, both running whenever
-`Cargo.lock` changes. gwt ships prebuilt binaries, so whatever a dependency
-brings with it reaches everyone who installs gwt, not only the people who
+`Cargo.lock` changes. gwx ships prebuilt binaries, so whatever a dependency
+brings with it reaches everyone who installs gwx, not only the people who
 rebuild from source.
 
 - `cargo audit`, against the [RustSec advisory database](https://rustsec.org),
   and again every Monday — an advisory can appear without anything here
   changing.
-- `cargo deny check licenses`, against the policy in `deny.toml`. gwt is MIT,
+- `cargo deny check licenses`, against the policy in `deny.toml`. gwx is MIT,
   so a copyleft dependency arriving in a routine version bump would leave the
   released binaries undistributable.
 
@@ -522,7 +517,7 @@ would break every link for no real gain.
 | `src/cli.rs` | The command line, and which completions each argument offers |
 | `src/commands/` | One module per subcommand |
 | `src/tui.rs` | The interactive picker |
-| `src/hooks.rs` | Running `.gwt.toml` hooks |
+| `src/hooks.rs` | Running `.gwx.toml` hooks |
 | `src/git.rs` | Every call out to `git` |
 | `src/cd_target.rs` | Handing a directory back to the shell |
 

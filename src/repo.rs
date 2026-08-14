@@ -38,7 +38,7 @@ impl Repo {
         self.base_dir().join(branch)
     }
 
-    /// Label shown in `gwt list`: path relative to the base dir when it lives
+    /// Label shown in `gwx list`: path relative to the base dir when it lives
     /// there, otherwise something still recognizable.
     pub fn display_name(&self, wt: &Worktree, main: &Worktree) -> String {
         if wt.path == main.path {

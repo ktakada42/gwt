@@ -1,4 +1,4 @@
-//! `gwt list` — show every worktree of the repository.
+//! `gwx list` — show every worktree of the repository.
 //!
 //! In a terminal this is the interactive picker; `--plain` and `--paths` are
 //! the ways to ask for text a script can read.

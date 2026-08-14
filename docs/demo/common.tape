@@ -1,6 +1,6 @@
 # Look and feel shared by every recording, sourced from the tapes.
 #
-# 80 columns is deliberate: gwt's picker drops parts of its help line on a
+# 80 columns is deliberate: gwx's picker drops parts of its help line on a
 # narrow terminal, and a demo should show the layout most people will get.
 
 Set Shell bash

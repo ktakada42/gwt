@@ -12,8 +12,8 @@ docs/demo/record.sh            # all three
 docs/demo/record.sh list       # just one
 ```
 
-Docker is the only requirement. `record.sh` builds gwt for Linux in a container
-and records in another one, because the paths gwt prints are absolute and a Mac
+Docker is the only requirement. `record.sh` builds gwx for Linux in a container
+and records in another one, because the paths gwx prints are absolute and a Mac
 would put `/private/tmp` or a real user name on screen where the README wants
 `/home/me`.
 

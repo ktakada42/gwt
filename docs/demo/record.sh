@@ -4,7 +4,7 @@
 #   docs/demo/record.sh            # all of them
 #   docs/demo/record.sh add list   # just these
 #
-# Needs Docker and nothing else: gwt is built for Linux in a container, and the
+# Needs Docker and nothing else: gwx is built for Linux in a container, and the
 # recording runs in another one (see Dockerfile for why not on the host).
 set -euo pipefail
 
@@ -12,14 +12,14 @@ cd "$(dirname "$0")/.."/..
 demo=docs/demo
 
 rust_image=rust:1-slim-bookworm
-vhs_image=gwt-vhs
+vhs_image=gwx-vhs
 
 tapes=("$@")
 if [ ${#tapes[@]} -eq 0 ]; then
     tapes=(add list remove)
 fi
 
-echo "==> building gwt for linux"
+echo "==> building gwx for linux"
 docker run --rm \
     -v "$PWD:/src" \
     -w /src \
@@ -34,7 +34,7 @@ for tape in "${tapes[@]}"; do
     echo "==> recording $tape"
     docker run --rm \
         -v "$PWD/$demo:/demo" \
-        -v "$PWD/target/docker/release/gwt:/usr/local/bin/gwt:ro" \
+        -v "$PWD/target/docker/release/gwx:/usr/local/bin/gwx:ro" \
         -w /demo \
         "$vhs_image" \
         "$tape.tape"

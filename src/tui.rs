@@ -578,7 +578,7 @@ impl StatusFeed {
 /// What is worth knowing about a worktree before acting on it.
 ///
 /// The path used to sit here, but it is derived from the branch name for every
-/// worktree gwt creates, so it repeated what the name already said. What is
+/// worktree gwx creates, so it repeated what the name already said. What is
 /// missing at a glance is whether removing this one would lose anything.
 ///
 /// "merged" is skipped for the main worktree: a branch is always merged into

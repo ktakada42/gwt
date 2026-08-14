@@ -1,8 +1,8 @@
 #!/bin/sh
 set -e
 
-REPO="ktakada42/gwt"
-BIN="gwt"
+REPO="ktakada42/gwx"
+BIN="gwx"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
 
 err() {
@@ -62,4 +62,4 @@ case ":${PATH}:" in
   *) echo "note: add ${INSTALL_DIR} to your PATH to use ${BIN}" ;;
 esac
 
-echo "note: enable \`gwt cd\` and completions with: eval \"\$(${BIN} shell-init zsh)\""
+echo "note: enable \`gwx cd\` and completions with: eval \"\$(${BIN} shell-init zsh)\""

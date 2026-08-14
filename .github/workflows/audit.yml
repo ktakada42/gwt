@@ -31,7 +31,7 @@ jobs:
         with:
           tool: cargo-audit
       # cargo-audit is maintained by the Rust Secure Code Working Group and
-      # reads the same RustSec database that backs GitHub's own alerts. gwt
+      # reads the same RustSec database that backs GitHub's own alerts. gwx
       # ships prebuilt binaries, so a vulnerable dependency reaches everyone
       # who installs it rather than only those who rebuild.
       - run: cargo audit --deny warnings
@@ -48,6 +48,6 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-deny
-      # gwt is MIT and distributes binaries, so a copyleft dependency arriving
+      # gwx is MIT and distributes binaries, so a copyleft dependency arriving
       # in a routine bump would make them undistributable. See deny.toml.
       - run: cargo deny check licenses sources

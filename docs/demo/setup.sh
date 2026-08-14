@@ -23,7 +23,7 @@ printf '{\n  "name": "app",\n  "version": "1.0.0"\n}\n' >package.json
 printf 'node_modules\n.env\n' >.gitignore
 printf 'console.log("hello");\n' >src/index.js
 
-cat >.gwt.toml <<'EOF'
+cat >.gwx.toml <<'EOF'
 version = "1"
 
 [[hooks.post_create]]
@@ -39,6 +39,6 @@ git add -A
 git commit -qm "Initial commit"
 
 # Branches for the demos to check out. `feature/auth` is deliberately missing:
-# `gwt add` creates it on camera, which is the interesting half of the command.
+# `gwx add` creates it on camera, which is the interesting half of the command.
 git branch feature/billing
 git branch hotfix/login

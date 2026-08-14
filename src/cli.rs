@@ -7,12 +7,12 @@ use crate::completion;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "gwt",
+    name = "gwx",
     // Derived from `git describe` at build time; see build.rs.
-    version = env!("GWT_VERSION"),
+    version = env!("GWX_VERSION"),
     about = "A friendly git worktree manager",
-    long_about = "gwt creates, lists and navigates git worktrees, with automatic \
-                  path layout and per-repository hooks configured in .gwt.toml.",
+    long_about = "gwx creates, lists and navigates git worktrees, with automatic \
+                  path layout and per-repository hooks configured in .gwx.toml.",
     subcommand_required = true,
     arg_required_else_help = true
 )]
@@ -37,7 +37,7 @@ pub enum Command {
     #[command(visible_alias = "rm")]
     Remove(RemoveArgs),
 
-    /// Write a .gwt.toml template to the main worktree
+    /// Write a .gwx.toml template to the main worktree
     Init(InitArgs),
 
     /// Print shell integration (cd support and completions) for eval
@@ -48,14 +48,14 @@ pub enum Command {
 
     /// Write man pages into a directory
     ///
-    /// Hidden because it exists for whoever packages gwt, not for daily use.
+    /// Hidden because it exists for whoever packages gwx, not for daily use.
     #[command(hide = true)]
     Man(ManArgs),
 }
 
 #[derive(Debug, clap::Args)]
 pub struct ManArgs {
-    /// Directory to write gwt.1 and one page per subcommand into
+    /// Directory to write gwx.1 and one page per subcommand into
     #[arg(long, value_name = "DIR")]
     pub out_dir: std::path::PathBuf,
 }
@@ -138,7 +138,7 @@ pub struct RemoveArgs {
 
 #[derive(Debug, clap::Args)]
 pub struct InitArgs {
-    /// Overwrite an existing .gwt.toml
+    /// Overwrite an existing .gwx.toml
     #[arg(long)]
     pub force: bool,
 }
@@ -180,7 +180,7 @@ mod tests {
 
     #[test]
     fn add_parses_flags() {
-        let cli = Cli::parse_from(["gwt", "add", "feat/x", "--from", "main", "--quiet"]);
+        let cli = Cli::parse_from(["gwx", "add", "feat/x", "--from", "main", "--quiet"]);
         match cli.command {
             Command::Add(args) => {
                 assert_eq!(args.branch, "feat/x");
@@ -194,18 +194,18 @@ mod tests {
     #[test]
     fn list_alias_works() {
         assert!(matches!(
-            Cli::parse_from(["gwt", "ls"]).command,
+            Cli::parse_from(["gwx", "ls"]).command,
             Command::List(_)
         ));
         assert!(matches!(
-            Cli::parse_from(["gwt", "rm", "feat/x"]).command,
+            Cli::parse_from(["gwx", "rm", "feat/x"]).command,
             Command::Remove(_)
         ));
     }
 
     #[test]
     fn cd_without_name_targets_the_main_worktree() {
-        match Cli::parse_from(["gwt", "cd"]).command {
+        match Cli::parse_from(["gwx", "cd"]).command {
             Command::Cd(args) => assert!(args.name.is_none()),
             other => panic!("unexpected command: {other:?}"),
         }

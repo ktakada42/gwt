@@ -1,4 +1,4 @@
-//! `gwt remove` — delete a worktree, optionally with its branch.
+//! `gwx remove` — delete a worktree, optionally with its branch.
 
 use anyhow::{bail, Context, Result};
 
@@ -124,7 +124,7 @@ pub fn run(args: RemoveArgs) -> Result<()> {
     }
     if repo.cwd.starts_with(&worktree.path) {
         bail!(
-            "you are inside {}. Move out of it first (try `gwt cd @`)",
+            "you are inside {}. Move out of it first (try `gwx cd @`)",
             worktree.path.display()
         );
     }

@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
-const BIN: &str = env!("CARGO_BIN_EXE_gwt");
+const BIN: &str = env!("CARGO_BIN_EXE_gwx");
 
 /// Starts a command that cannot reach outside its fixture.
 ///
@@ -87,15 +87,15 @@ impl Fixture {
         git(&self.repo, ["remote", "add", name, path.to_str().unwrap()]);
     }
 
-    fn gwt<I, S>(&self, args: I) -> Output
+    fn gwx<I, S>(&self, args: I) -> Output
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
     {
-        self.gwt_in(&self.repo, args)
+        self.gwx_in(&self.repo, args)
     }
 
-    fn gwt_in<I, S>(&self, dir: &Path, args: I) -> Output
+    fn gwx_in<I, S>(&self, dir: &Path, args: I) -> Output
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
@@ -104,30 +104,30 @@ impl Fixture {
             .current_dir(dir)
             .args(args)
             .output()
-            .expect("failed to run gwt")
+            .expect("failed to run gwx")
     }
 
-    fn gwt_ok<I, S>(&self, args: I) -> String
+    fn gwx_ok<I, S>(&self, args: I) -> String
     where
         I: IntoIterator<Item = S>,
         S: AsRef<std::ffi::OsStr>,
     {
-        let out = self.gwt(args);
+        let out = self.gwx(args);
         assert!(
             out.status.success(),
-            "gwt failed:\n{}",
+            "gwx failed:\n{}",
             String::from_utf8_lossy(&out.stderr)
         );
         String::from_utf8_lossy(&out.stdout).trim_end().to_string()
     }
 
     fn write_config(&self, contents: &str) {
-        std::fs::write(self.repo.join(".gwt.toml"), contents).unwrap();
+        std::fs::write(self.repo.join(".gwx.toml"), contents).unwrap();
     }
 
     /// Asks for the candidates a shell would get for `words[index]`.
     ///
-    /// This is the same protocol the scripts from `gwt completion` speak.
+    /// This is the same protocol the scripts from `gwx completion` speak.
     fn complete_in(&self, dir: &Path, index: usize, words: &[&str]) -> Vec<String> {
         let out = command(BIN)
             .current_dir(dir)
@@ -136,7 +136,7 @@ impl Fixture {
             .arg("--")
             .args(words)
             .output()
-            .expect("failed to run gwt");
+            .expect("failed to run gwx");
         assert!(
             out.status.success(),
             "completion failed:\n{}",
@@ -187,7 +187,7 @@ where
 #[test]
 fn add_creates_a_branch_and_a_worktree() {
     let fx = Fixture::new();
-    let path = fx.gwt_ok(["add", "feature/auth"]);
+    let path = fx.gwx_ok(["add", "feature/auth"]);
 
     let expected = fx.worktrees_dir().join("feature/auth");
     assert_eq!(Path::new(&path), expected);
@@ -203,7 +203,7 @@ fn add_checks_out_an_existing_branch() {
     let fx = Fixture::new();
     git(&fx.repo, ["branch", "existing"]);
 
-    let path = fx.gwt_ok(["add", "existing"]);
+    let path = fx.gwx_ok(["add", "existing"]);
     assert_eq!(
         git_out(Path::new(&path), ["rev-parse", "--abbrev-ref", "HEAD"]),
         "existing"
@@ -217,7 +217,7 @@ fn add_tracks_a_remote_only_branch() {
     git(&fx.repo, ["push", "origin", "remote-only"]);
     git(&fx.repo, ["branch", "-D", "remote-only"]);
 
-    let path = fx.gwt_ok(["add", "remote-only"]);
+    let path = fx.gwx_ok(["add", "remote-only"]);
     let upstream = git_out(
         Path::new(&path),
         ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
@@ -229,7 +229,7 @@ fn add_tracks_a_remote_only_branch() {
 fn add_respects_from_and_path() {
     let fx = Fixture::new();
     let custom = fx.root.join("custom-dir");
-    let path = fx.gwt_ok([
+    let path = fx.gwx_ok([
         "add",
         "from-main",
         "--from",
@@ -248,9 +248,9 @@ fn add_respects_from_and_path() {
 #[test]
 fn add_refuses_a_branch_that_is_already_checked_out() {
     let fx = Fixture::new();
-    fx.gwt_ok(["add", "dup"]);
+    fx.gwx_ok(["add", "dup"]);
 
-    let out = fx.gwt(["add", "dup"]);
+    let out = fx.gwx(["add", "dup"]);
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("already checked out"), "{stderr}");
@@ -259,7 +259,7 @@ fn add_refuses_a_branch_that_is_already_checked_out() {
 #[test]
 fn no_create_fails_for_unknown_branches() {
     let fx = Fixture::new();
-    let out = fx.gwt(["add", "nope", "--no-create"]);
+    let out = fx.gwx(["add", "nope", "--no-create"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("does not exist"));
 }
@@ -269,7 +269,7 @@ fn base_dir_is_configurable() {
     let fx = Fixture::new();
     fx.write_config("[defaults]\nbase_dir = \"../trees\"\n");
 
-    let path = fx.gwt_ok(["add", "feat"]);
+    let path = fx.gwx_ok(["add", "feat"]);
     assert_eq!(Path::new(&path), fx.root.join("trees/feat"));
 }
 
@@ -283,7 +283,7 @@ version = "1"
 
 [[hooks.pre_create]]
 type = "command"
-command = "printf %s \"$GWT_BRANCH\" > pre-marker"
+command = "printf %s \"$GWX_BRANCH\" > pre-marker"
 
 [[hooks.post_create]]
 type = "copy"
@@ -296,12 +296,12 @@ to = "linked-readme"
 
 [[hooks.post_create]]
 type = "command"
-command = "printf %s \"$GWT_WORKTREE_PATH:$MY_VAR\" > post-marker"
+command = "printf %s \"$GWX_WORKTREE_PATH:$MY_VAR\" > post-marker"
 env = { MY_VAR = "set" }
 "#,
     );
 
-    let path = PathBuf::from(fx.gwt_ok(["add", "feature/hooked"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "feature/hooked"]));
 
     // pre_create runs in the main worktree, before the new one exists.
     assert_eq!(
@@ -328,7 +328,7 @@ fn a_failing_hook_reports_an_error() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.post_create]]\ntype = \"command\"\ncommand = \"exit 7\"\n");
 
-    let out = fx.gwt(["add", "broken"]);
+    let out = fx.gwx(["add", "broken"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("post_create hook failed"));
 }
@@ -345,7 +345,7 @@ fn a_copy_hook_keeps_symlinks_and_survives_broken_ones() {
     std::os::unix::fs::symlink("gone.js", modules.join("dangling")).unwrap();
     fx.write_config("[[hooks.post_create]]\ntype = \"copy\"\nfrom = \"node_modules\"\n");
 
-    let path = PathBuf::from(fx.gwt_ok(["add", "linked"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "linked"]));
 
     let copied = path.join("node_modules");
     assert!(copied.join("bin").symlink_metadata().unwrap().is_symlink());
@@ -365,10 +365,27 @@ fn a_copy_hook_keeps_symlinks_and_survives_broken_ones() {
 }
 
 #[test]
+fn a_leftover_gwt_config_is_reported_rather_than_ignored() {
+    let fx = Fixture::new();
+    // What a repository configured for v1.4.1 and earlier looks like.
+    std::fs::write(
+        fx.repo.join(".gwt.toml"),
+        "[[hooks.post_create]]\ntype = \"command\"\ncommand = \"true\"\n",
+    )
+    .unwrap();
+
+    let out = fx.gwx(["add", "renamed"]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains(".gwt.toml"), "{stderr}");
+    assert!(stderr.contains(".gwx.toml"), "{stderr}");
+}
+
+#[test]
 fn no_hooks_skips_them() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.post_create]]\ntype = \"command\"\ncommand = \"exit 7\"\n");
-    fx.gwt_ok(["add", "fine", "--no-hooks"]);
+    fx.gwx_ok(["add", "fine", "--no-hooks"]);
 }
 
 #[test]
@@ -376,7 +393,7 @@ fn hooks_cannot_escape_the_worktree() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.post_create]]\ntype = \"copy\"\nfrom = \"../outside\"\n");
 
-    let out = fx.gwt(["add", "escape"]);
+    let out = fx.gwx(["add", "escape"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("escapes the worktree"));
 }
@@ -384,9 +401,9 @@ fn hooks_cannot_escape_the_worktree() {
 #[test]
 fn list_shows_every_worktree() {
     let fx = Fixture::new();
-    fx.gwt_ok(["add", "feature/one"]);
+    fx.gwx_ok(["add", "feature/one"]);
 
-    let listing = fx.gwt_ok(["list"]);
+    let listing = fx.gwx_ok(["list"]);
     assert!(listing.contains('@'), "{listing}");
     assert!(listing.contains("feature/one"), "{listing}");
     assert!(
@@ -394,30 +411,30 @@ fn list_shows_every_worktree() {
         "{listing}"
     );
 
-    let paths = fx.gwt_ok(["list", "--paths"]);
+    let paths = fx.gwx_ok(["list", "--paths"]);
     assert_eq!(paths.lines().count(), 2);
     assert!(paths.lines().any(|l| l == fx.repo.to_str().unwrap()));
 
     // `--plain` asks for the same table the picker would have replaced.
-    assert_eq!(fx.gwt_ok(["list", "--plain"]), listing);
+    assert_eq!(fx.gwx_ok(["list", "--plain"]), listing);
 }
 
 #[test]
 fn a_chosen_directory_is_handed_over_through_a_file() {
     let fx = Fixture::new();
-    let created = fx.gwt_ok(["add", "feature/handoff"]);
+    let created = fx.gwx_ok(["add", "feature/handoff"]);
     let handoff = fx.root.join("cd-request");
 
     let out = command(BIN)
         .current_dir(&fx.repo)
-        .env("GWT_CD_FILE", &handoff)
+        .env("GWX_CD_FILE", &handoff)
         .args(["cd", "feature/handoff"])
         .output()
-        .expect("failed to run gwt");
+        .expect("failed to run gwx");
     assert!(out.status.success());
 
     // The path goes to the file, and stdout stays empty so that a command
-    // like `gwt list` can keep printing its own output.
+    // like `gwx list` can keep printing its own output.
     assert_eq!(
         std::fs::read_to_string(&handoff).unwrap().trim_end(),
         created
@@ -428,17 +445,17 @@ fn a_chosen_directory_is_handed_over_through_a_file() {
 #[test]
 fn list_stays_plain_without_a_terminal() {
     let fx = Fixture::new();
-    fx.gwt_ok(["add", "feature/one"]);
+    fx.gwx_ok(["add", "feature/one"]);
     let handoff = fx.root.join("cd-request");
 
     // Even with the hand-off file offered, no terminal means no picker: the
     // table is printed and nothing asks the shell to move.
     let out = command(BIN)
         .current_dir(&fx.repo)
-        .env("GWT_CD_FILE", &handoff)
+        .env("GWX_CD_FILE", &handoff)
         .arg("list")
         .output()
-        .expect("failed to run gwt");
+        .expect("failed to run gwx");
 
     assert!(out.status.success());
     assert!(String::from_utf8_lossy(&out.stdout).contains("feature/one"));
@@ -446,9 +463,9 @@ fn list_stays_plain_without_a_terminal() {
 }
 
 #[test]
-fn an_ambient_git_dir_does_not_redirect_gwt() {
+fn an_ambient_git_dir_does_not_redirect_gwx() {
     let fx = Fixture::new();
-    fx.gwt_ok(["add", "feature/here"]);
+    fx.gwx_ok(["add", "feature/here"]);
 
     // A second repository, standing in for the one a git hook would name.
     let elsewhere = fx.root.join("elsewhere");
@@ -462,11 +479,11 @@ fn an_ambient_git_dir_does_not_redirect_gwt() {
         .env("GIT_WORK_TREE", &elsewhere)
         .args(["list", "--paths"])
         .output()
-        .expect("failed to run gwt");
+        .expect("failed to run gwx");
 
     assert!(
         out.status.success(),
-        "gwt failed:\n{}",
+        "gwx failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
     let paths = String::from_utf8_lossy(&out.stdout);
@@ -489,10 +506,10 @@ fn a_hook_does_not_inherit_a_pointer_to_another_repository() {
         .env("GIT_WORK_TREE", &elsewhere)
         .args(["add", "feature/hooked"])
         .output()
-        .expect("failed to run gwt");
+        .expect("failed to run gwx");
     assert!(
         out.status.success(),
-        "gwt failed:\n{}",
+        "gwx failed:\n{}",
         String::from_utf8_lossy(&out.stderr)
     );
 
@@ -505,16 +522,16 @@ fn a_hook_does_not_inherit_a_pointer_to_another_repository() {
 #[test]
 fn cd_resolves_names() {
     let fx = Fixture::new();
-    let created = fx.gwt_ok(["add", "feature/two"]);
+    let created = fx.gwx_ok(["add", "feature/two"]);
 
-    assert_eq!(fx.gwt_ok(["cd", "feature/two"]), created);
-    assert_eq!(fx.gwt_ok(["cd", "@"]), fx.repo.to_str().unwrap());
-    // A bare `gwt cd` goes to the main worktree the way a bare `cd` goes home.
-    // It never opens the picker — that is what `gwt list` is for.
-    assert_eq!(fx.gwt_ok(["cd"]), fx.repo.to_str().unwrap());
+    assert_eq!(fx.gwx_ok(["cd", "feature/two"]), created);
+    assert_eq!(fx.gwx_ok(["cd", "@"]), fx.repo.to_str().unwrap());
+    // A bare `gwx cd` goes to the main worktree the way a bare `cd` goes home.
+    // It never opens the picker — that is what `gwx list` is for.
+    assert_eq!(fx.gwx_ok(["cd"]), fx.repo.to_str().unwrap());
 
     // Resolution also works from inside another worktree.
-    let out = fx.gwt_in(Path::new(&created), ["cd", "@"]);
+    let out = fx.gwx_in(Path::new(&created), ["cd", "@"]);
     assert_eq!(
         String::from_utf8_lossy(&out.stdout).trim_end(),
         fx.repo.to_str().unwrap()
@@ -524,7 +541,7 @@ fn cd_resolves_names() {
 #[test]
 fn cd_reports_unknown_names() {
     let fx = Fixture::new();
-    let out = fx.gwt(["cd", "ghost"]);
+    let out = fx.gwx(["cd", "ghost"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("no worktree named"));
 }
@@ -532,9 +549,9 @@ fn cd_reports_unknown_names() {
 #[test]
 fn remove_deletes_the_worktree_and_optionally_the_branch() {
     let fx = Fixture::new();
-    let path = PathBuf::from(fx.gwt_ok(["add", "feature/gone"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "feature/gone"]));
 
-    let out = fx.gwt(["remove", "feature/gone", "--with-branch"]);
+    let out = fx.gwx(["remove", "feature/gone", "--with-branch"]);
     assert!(
         out.status.success(),
         "{}",
@@ -547,18 +564,18 @@ fn remove_deletes_the_worktree_and_optionally_the_branch() {
 #[test]
 fn remove_protects_dirty_worktrees_and_the_main_one() {
     let fx = Fixture::new();
-    let path = PathBuf::from(fx.gwt_ok(["add", "dirty"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "dirty"]));
     std::fs::write(path.join("README.md"), "changed\n").unwrap();
 
-    let out = fx.gwt(["remove", "dirty"]);
+    let out = fx.gwx(["remove", "dirty"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("uncommitted changes"));
     assert!(path.exists());
 
-    assert!(fx.gwt(["remove", "dirty", "--force"]).status.success());
+    assert!(fx.gwx(["remove", "dirty", "--force"]).status.success());
     assert!(!path.exists());
 
-    let out = fx.gwt(["remove", "@"]);
+    let out = fx.gwx(["remove", "@"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("main worktree"));
 }
@@ -566,14 +583,14 @@ fn remove_protects_dirty_worktrees_and_the_main_one() {
 #[test]
 fn remove_keeps_unmerged_branches() {
     let fx = Fixture::new();
-    let path = PathBuf::from(fx.gwt_ok(["add", "unmerged"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "unmerged"]));
     git(&path, ["config", "user.email", "test@example.com"]);
     git(&path, ["config", "user.name", "Test"]);
     std::fs::write(path.join("new.txt"), "x\n").unwrap();
     git(&path, ["add", "."]);
     git(&path, ["commit", "-m", "work"]);
 
-    let out = fx.gwt(["remove", "unmerged", "--with-branch"]);
+    let out = fx.gwx(["remove", "unmerged", "--with-branch"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("not merged"));
     // The worktree itself is gone; only the branch was kept.
@@ -590,16 +607,16 @@ version = "1"
 
 [[hooks.pre_remove]]
 type = "command"
-command = "pwd -P > \"$GWT_MAIN_WORKTREE/pre-remove\""
+command = "pwd -P > \"$GWX_MAIN_WORKTREE/pre-remove\""
 
 [[hooks.post_remove]]
 type = "command"
-command = "printf %s \"$GWT_WORKTREE_NAME $GWT_BRANCH $GWT_WORKTREE_PATH\" > post-remove"
+command = "printf %s \"$GWX_WORKTREE_NAME $GWX_BRANCH $GWX_WORKTREE_PATH\" > post-remove"
 "#,
     );
-    let path = PathBuf::from(fx.gwt_ok(["add", "feature/gone"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "feature/gone"]));
 
-    let out = fx.gwt(["remove", "feature/gone", "--with-branch"]);
+    let out = fx.gwx(["remove", "feature/gone", "--with-branch"]);
     assert!(
         out.status.success(),
         "{}",
@@ -623,15 +640,15 @@ command = "printf %s \"$GWT_WORKTREE_NAME $GWT_BRANCH $GWT_WORKTREE_PATH\" > pos
 fn a_failing_pre_remove_hook_keeps_the_worktree() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.pre_remove]]\ntype = \"command\"\ncommand = \"exit 7\"\n");
-    let path = PathBuf::from(fx.gwt_ok(["add", "kept"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "kept"]));
 
-    let out = fx.gwt(["remove", "kept"]);
+    let out = fx.gwx(["remove", "kept"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("pre_remove hook failed"));
     assert!(path.exists(), "the removal should have been called off");
 
     // The escape hatch still works when a hook is the thing that is broken.
-    assert!(fx.gwt(["remove", "kept", "--no-hooks"]).status.success());
+    assert!(fx.gwx(["remove", "kept", "--no-hooks"]).status.success());
     assert!(!path.exists());
 }
 
@@ -639,9 +656,9 @@ fn a_failing_pre_remove_hook_keeps_the_worktree() {
 fn a_failing_post_remove_hook_reports_the_removal_that_already_happened() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.post_remove]]\ntype = \"command\"\ncommand = \"exit 7\"\n");
-    let path = PathBuf::from(fx.gwt_ok(["add", "swept"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "swept"]));
 
-    let out = fx.gwt(["remove", "swept"]);
+    let out = fx.gwx(["remove", "swept"]);
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("post_remove hook failed"), "{stderr}");
@@ -653,9 +670,9 @@ fn a_failing_post_remove_hook_reports_the_removal_that_already_happened() {
 fn copy_hooks_are_refused_around_removal() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.pre_remove]]\ntype = \"copy\"\nfrom = \".env\"\n");
-    let path = PathBuf::from(fx.gwt_ok(["add", "misconfigured"]));
+    let path = PathBuf::from(fx.gwx_ok(["add", "misconfigured"]));
 
-    let out = fx.gwt(["remove", "misconfigured"]);
+    let out = fx.gwx(["remove", "misconfigured"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("only supported in post_create"));
     assert!(path.exists());
@@ -664,22 +681,22 @@ fn copy_hooks_are_refused_around_removal() {
 #[test]
 fn init_writes_a_config_template() {
     let fx = Fixture::new();
-    assert!(fx.gwt(["init"]).status.success());
-    let contents = std::fs::read_to_string(fx.repo.join(".gwt.toml")).unwrap();
+    assert!(fx.gwx(["init"]).status.success());
+    let contents = std::fs::read_to_string(fx.repo.join(".gwx.toml")).unwrap();
     assert!(contents.contains("base_dir"));
 
-    let out = fx.gwt(["init"]);
+    let out = fx.gwx(["init"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("already exists"));
-    assert!(fx.gwt(["init", "--force"]).status.success());
+    assert!(fx.gwx(["init", "--force"]).status.success());
 }
 
 #[test]
 fn shell_init_emits_a_wrapper_and_completions() {
     let fx = Fixture::new();
     for shell in ["bash", "zsh", "fish"] {
-        let script = fx.gwt_ok(["shell-init", shell]);
-        assert!(script.contains("gwt"), "{shell}: {script}");
+        let script = fx.gwx_ok(["shell-init", shell]);
+        assert!(script.contains("gwx"), "{shell}: {script}");
         assert!(script.contains("cd"), "{shell}: {script}");
         // The completion stub calls back into the binary for candidates.
         assert!(script.contains("COMPLETE"), "{shell}: {script}");
@@ -689,10 +706,10 @@ fn shell_init_emits_a_wrapper_and_completions() {
 #[test]
 fn cd_completes_worktree_names() {
     let fx = Fixture::new();
-    fx.gwt_ok(["add", "feature/one"]);
-    fx.gwt_ok(["add", "feature/two"]);
+    fx.gwx_ok(["add", "feature/one"]);
+    fx.gwx_ok(["add", "feature/two"]);
 
-    let candidates = fx.complete(&["gwt", "cd", ""]);
+    let candidates = fx.complete(&["gwx", "cd", ""]);
     assert!(candidates.contains(&"@".to_string()), "{candidates:?}");
     assert!(
         candidates.contains(&"feature/one".to_string()),
@@ -704,7 +721,7 @@ fn cd_completes_worktree_names() {
     );
 
     // Typing a prefix narrows the list.
-    let narrowed = fx.complete_in(&fx.repo, 2, &["gwt", "cd", "feature/o"]);
+    let narrowed = fx.complete_in(&fx.repo, 2, &["gwx", "cd", "feature/o"]);
     assert!(
         narrowed.contains(&"feature/one".to_string()),
         "{narrowed:?}"
@@ -718,9 +735,9 @@ fn cd_completes_worktree_names() {
 #[test]
 fn remove_completion_leaves_out_the_main_worktree() {
     let fx = Fixture::new();
-    fx.gwt_ok(["add", "feature/one"]);
+    fx.gwx_ok(["add", "feature/one"]);
 
-    let candidates = fx.complete(&["gwt", "remove", ""]);
+    let candidates = fx.complete(&["gwx", "remove", ""]);
     assert!(
         candidates.contains(&"feature/one".to_string()),
         "{candidates:?}"
@@ -736,14 +753,14 @@ fn add_completes_branches_without_a_worktree() {
     git(&fx.repo, ["branch", "remote-only"]);
     git(&fx.repo, ["push", "-q", "origin", "remote-only"]);
     git(&fx.repo, ["branch", "-D", "remote-only"]);
-    fx.gwt_ok(["add", "taken"]);
+    fx.gwx_ok(["add", "taken"]);
 
-    let candidates = fx.complete(&["gwt", "add", ""]);
+    let candidates = fx.complete(&["gwx", "add", ""]);
     assert!(
         candidates.contains(&"local-only".to_string()),
         "{candidates:?}"
     );
-    // Remote-only branches appear under the name `gwt add` expects.
+    // Remote-only branches appear under the name `gwx add` expects.
     assert!(
         candidates.contains(&"remote-only".to_string()),
         "{candidates:?}"
@@ -771,7 +788,7 @@ fn add_completion_lists_a_branch_once_per_name() {
     git(&fx.repo, ["branch", "both"]);
     git(&fx.repo, ["push", "-q", "origin", "both"]);
 
-    let candidates = fx.complete(&["gwt", "add", ""]);
+    let candidates = fx.complete(&["gwx", "add", ""]);
     let count = |name: &str| candidates.iter().filter(|c| *c == name).count();
 
     assert_eq!(count("dual"), 1, "{candidates:?}");
@@ -783,7 +800,7 @@ fn from_completes_branches_and_tags() {
     let fx = Fixture::new();
     git(&fx.repo, ["tag", "v1.0.0"]);
 
-    let candidates = fx.complete(&["gwt", "add", "new-branch", "--from", ""]);
+    let candidates = fx.complete(&["gwx", "add", "new-branch", "--from", ""]);
     assert!(candidates.contains(&"main".to_string()), "{candidates:?}");
     assert!(candidates.contains(&"v1.0.0".to_string()), "{candidates:?}");
     assert!(
@@ -798,7 +815,7 @@ fn completion_outside_a_repository_is_empty() {
     let outside = fx.root.join("not-a-repo");
     std::fs::create_dir_all(&outside).unwrap();
 
-    let candidates = fx.complete_in(&outside, 2, &["gwt", "cd", ""]);
+    let candidates = fx.complete_in(&outside, 2, &["gwx", "cd", ""]);
     assert_eq!(candidates, vec!["--help".to_string()], "{candidates:?}");
 }
 
@@ -808,7 +825,7 @@ fn outside_a_repository_it_fails_cleanly() {
     let outside = fx.root.join("not-a-repo");
     std::fs::create_dir_all(&outside).unwrap();
 
-    let out = fx.gwt_in(&outside, ["list"]);
+    let out = fx.gwx_in(&outside, ["list"]);
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("not inside a git repository"));
 }

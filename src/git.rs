@@ -41,14 +41,14 @@ impl Worktree {
 
 /// Environment variables that pin git to a particular repository or index.
 ///
-/// gwt always means "the repository containing this directory", so it works
+/// gwx always means "the repository containing this directory", so it works
 /// that out from the path it was handed, not from whatever a caller exported.
 /// The case that matters is being run from a git hook: git gives its hooks a
 /// `GIT_DIR`, and git reads that before it looks at the working directory, so
 /// without this every call would land on the hook's repository instead.
 ///
 /// Deliberately absent are `GIT_CONFIG_GLOBAL` and its relatives. Which
-/// repository to act on is gwt's business; how git is configured is the
+/// repository to act on is gwx's business; how git is configured is the
 /// user's.
 pub const REPO_ENV: &[&str] = &[
     "GIT_DIR",
@@ -91,8 +91,8 @@ where
 /// Runs git in `dir` for its side effects, failing on a non-zero exit.
 ///
 /// Progress git prints on stdout ("HEAD is now at …") is forwarded to stderr:
-/// gwt's own stdout is reserved for paths, so that `gwt add --quiet` and
-/// `gwt cd` stay usable in command substitution.
+/// gwx's own stdout is reserved for paths, so that `gwx add --quiet` and
+/// `gwx cd` stay usable in command substitution.
 pub fn run<I, S>(dir: &Path, args: I) -> Result<()>
 where
     I: IntoIterator<Item = S>,
@@ -132,7 +132,7 @@ where
 
 /// The main worktree of the repository containing `cwd`.
 ///
-/// Every path in the configuration is resolved against it, so that `gwt`
+/// Every path in the configuration is resolved against it, so that `gwx`
 /// behaves the same no matter which worktree it is invoked from.
 pub fn main_worktree(cwd: &Path) -> Result<PathBuf> {
     if !check(cwd, ["rev-parse", "--git-dir"]) {

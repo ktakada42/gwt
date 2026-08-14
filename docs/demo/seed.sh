@@ -7,7 +7,7 @@
 set -euo pipefail
 
 for branch in feature/auth feature/billing hotfix/login; do
-    gwt add "$branch" >/dev/null 2>&1
+    gwx add "$branch" >/dev/null 2>&1
 done
 
 echo '// TODO: refresh the token' >>"$HOME/worktrees/feature/auth/src/index.js"

@@ -1,12 +1,12 @@
 //! Handing a directory back to the shell.
 //!
-//! A process cannot change its parent's working directory, so `gwt` has to ask
-//! the shell function from `gwt shell-init` to do it.
+//! A process cannot change its parent's working directory, so `gwx` has to ask
+//! the shell function from `gwx shell-init` to do it.
 //!
-//! The request travels through a file named by `GWT_CD_FILE` rather than
-//! stdout. Stdout would work for `gwt cd`, whose only output *is* the path, but
-//! not for `gwt list`, which prints a table the shell must not treat as a
-//! destination. Keeping stdout free also means `gwt list --paths | peco` still
+//! The request travels through a file named by `GWX_CD_FILE` rather than
+//! stdout. Stdout would work for `gwx cd`, whose only output *is* the path, but
+//! not for `gwx list`, which prints a table the shell must not treat as a
+//! destination. Keeping stdout free also means `gwx list --paths | peco` still
 //! streams and pipes exactly as it did.
 
 use std::ffi::OsString;
@@ -15,7 +15,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 /// Environment variable holding the path of the hand-off file.
-pub const CD_FILE_VAR: &str = "GWT_CD_FILE";
+pub const CD_FILE_VAR: &str = "GWX_CD_FILE";
 
 /// Asks the shell to move into `path`.
 pub fn request(path: &Path) -> Result<()> {
@@ -24,7 +24,7 @@ pub fn request(path: &Path) -> Result<()> {
 
 /// Asks the shell to move into a worktree the user just picked from the list.
 ///
-/// Printing a path is a fine answer for `gwt cd feature/x`, which someone may
+/// Printing a path is a fine answer for `gwx cd feature/x`, which someone may
 /// have wrapped in a command substitution. It is a dead end after the picker:
 /// the user chose a destination and nothing happened. That almost always means
 /// the shell function predates the hand-off file, so say so.
@@ -34,9 +34,9 @@ pub fn request_picked(path: &Path) -> Result<()> {
     write_request(file, path)?;
     if !integrated {
         eprintln!(
-            "gwt: could not change directory — the shell integration is missing or out of date."
+            "gwx: could not change directory — the shell integration is missing or out of date."
         );
-        eprintln!("     Start a new shell, or reload it with: eval \"$(gwt shell-init zsh)\"");
+        eprintln!("     Start a new shell, or reload it with: eval \"$(gwx shell-init zsh)\"");
     }
     Ok(())
 }
@@ -44,7 +44,7 @@ pub fn request_picked(path: &Path) -> Result<()> {
 /// Writes the request to `file`, falling back to stdout when there is none.
 ///
 /// Without the shell integration nobody is reading the file, so the path goes
-/// to stdout instead and `cd "$(gwt cd feature/x)"` keeps working.
+/// to stdout instead and `cd "$(gwx cd feature/x)"` keeps working.
 fn write_request(file: Option<OsString>, path: &Path) -> Result<()> {
     match file {
         Some(file) if !file.is_empty() => std::fs::write(&file, format!("{}\n", path.display()))
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn reports_an_unwritable_hand_off_file() {
         let err = write_request(
-            Some(OsString::from("/nonexistent-dir/gwt-cd")),
+            Some(OsString::from("/nonexistent-dir/gwx-cd")),
             Path::new("/tmp"),
         )
         .unwrap_err();

@@ -1,4 +1,4 @@
-//! `gwt add` — create a worktree, creating the branch when it does not exist.
+//! `gwx add` — create a worktree, creating the branch when it does not exist.
 
 use std::path::Path;
 

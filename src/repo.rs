@@ -21,7 +21,7 @@ impl Repo {
     pub fn discover() -> Result<Self> {
         let cwd = std::env::current_dir().context("failed to read the current directory")?;
         let main = git::main_worktree(&cwd)?;
-        let config = Config::load(&main)?;
+        let config = Config::merge(Config::load_global()?, Config::load(&main)?);
         Ok(Self { cwd, main, config })
     }
 

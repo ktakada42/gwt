@@ -310,6 +310,10 @@ worktree.
 matter which worktree you run it from, so hook paths always mean the same
 thing. Run `gwx init` to get a commented template. Everything is optional.
 
+There is a second file, in the same format, for what is yours rather than the
+project's: `~/.config/gwx/config.toml` (or `$XDG_CONFIG_HOME/gwx/config.toml`).
+See [Two files](#two-files) for how the two combine.
+
 ```toml
 version = "1"
 
@@ -355,6 +359,38 @@ command = "rm -rf \"$GWX_MAIN_WORKTREE/.cache/$GWX_WORKTREE_NAME\""
 With `base_dir = "../worktrees"`, a repository at `/home/me/repo` puts the
 worktree for `feature/auth` at `/home/me/worktrees/feature/auth`. Slashes in
 branch names become directories. An absolute `base_dir` is used as-is.
+
+### Two files
+
+`.gwx.toml` in the repository is a decision the project makes: everyone who
+clones it gets the same hooks, and it is meant to be committed. Where you like
+your worktrees is not that kind of decision, and neither is what you personally
+run in every checkout — those go in `~/.config/gwx/config.toml`, which nobody
+else sees.
+
+```toml
+# ~/.config/gwx/config.toml
+[defaults]
+base_dir = ".worktrees"   # inside the repository, wherever you are
+```
+
+The two combine per key rather than one replacing the other:
+
+| | Result |
+| --- | --- |
+| `[defaults]` | The repository wins where it says something; where it is silent, yours applies |
+| Hooks | Both run. Neither replaces the other |
+
+Hooks run in the order setting up and tearing down always take: on **create**,
+yours first and the repository's second; on **remove**, the repository's first
+and yours last — so what your hook set up is still there while the project's
+teardown runs. `gwx` names each hook as it runs it, so the order is visible.
+
+Two things to know before putting hooks in the user-wide file. They run in
+**every** repository, including ones you have just cloned and have not read;
+and a `copy` hook naming a file that a repository does not have is a failure,
+not a skip. `--no-hooks` on `add` and `remove` is the way past a hook that is
+in your way.
 
 ### Hook phases
 

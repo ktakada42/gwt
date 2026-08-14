@@ -102,6 +102,9 @@ impl Fixture {
     {
         command(BIN)
             .current_dir(dir)
+            // Point the user-wide config at the fixture, so a real one in the
+            // developer's home cannot change what these tests see.
+            .env("XDG_CONFIG_HOME", self.root.join("config"))
             .args(args)
             .output()
             .expect("failed to run gwx")
@@ -123,6 +126,13 @@ impl Fixture {
 
     fn write_config(&self, contents: &str) {
         std::fs::write(self.repo.join(".gwx.toml"), contents).unwrap();
+    }
+
+    /// Writes the user-wide config that `gwx_in` points `XDG_CONFIG_HOME` at.
+    fn write_global_config(&self, contents: &str) {
+        let dir = self.root.join("config/gwx");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("config.toml"), contents).unwrap();
     }
 
     /// Asks for the candidates a shell would get for `words[index]`.
@@ -361,6 +371,65 @@ fn a_copy_hook_keeps_symlinks_and_survives_broken_ones() {
     assert_eq!(
         std::fs::read_to_string(copied.join("pkg/index.js")).unwrap(),
         "1"
+    );
+}
+
+#[test]
+fn a_user_wide_config_applies_to_a_repository_without_one() {
+    let fx = Fixture::new();
+    fx.write_global_config(
+        r#"
+[defaults]
+base_dir = ".worktrees"
+
+[[hooks.post_create]]
+type = "command"
+command = "printf %s \"$GWX_BRANCH\" > from-user-config"
+"#,
+    );
+
+    let path = PathBuf::from(fx.gwx_ok(["add", "feature/mine"]));
+
+    // The layout the user prefers, in a repository that never asked.
+    assert_eq!(path, fx.repo.join(".worktrees/feature/mine"));
+    assert_eq!(
+        std::fs::read_to_string(path.join("from-user-config")).unwrap(),
+        "feature/mine"
+    );
+}
+
+#[test]
+fn a_repository_config_overrides_settings_but_adds_to_hooks() {
+    let fx = Fixture::new();
+    fx.write_global_config(
+        r#"
+[defaults]
+base_dir = ".worktrees"
+
+[[hooks.post_create]]
+type = "command"
+command = "printf user >> order"
+"#,
+    );
+    fx.write_config(
+        r#"
+[defaults]
+base_dir = "../elsewhere"
+
+[[hooks.post_create]]
+type = "command"
+command = "printf repo >> order"
+"#,
+    );
+
+    let path = PathBuf::from(fx.gwx_ok(["add", "feature/both"]));
+
+    // The repository wins on where the worktree goes.
+    assert_eq!(path, fx.root.join("elsewhere/feature/both"));
+    // Neither hook replaces the other, and the user's runs first.
+    assert_eq!(
+        std::fs::read_to_string(path.join("order")).unwrap(),
+        "userrepo"
     );
 }
 

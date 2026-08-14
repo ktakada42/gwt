@@ -130,6 +130,10 @@ pub struct RemoveArgs {
     /// Remove even when the worktree has uncommitted changes
     #[arg(long)]
     pub force: bool,
+
+    /// Skip pre_remove and post_remove hooks
+    #[arg(long)]
+    pub no_hooks: bool,
 }
 
 #[derive(Debug, clap::Args)]

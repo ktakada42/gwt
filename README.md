@@ -42,8 +42,9 @@ was for, as long as it is merged.
   predictable path, so you never type a directory name.
 - **Branches are created when missing.** An existing local branch is checked
   out, a remote-only branch is tracked, and anything else becomes a new branch.
-- **Hooks.** Copy files, create symlinks and run commands before and after the
-  worktree is created, configured per repository in `.gwt.toml`.
+- **Hooks.** Copy files, create symlinks and run commands around creation and
+  removal, configured per repository in `.gwt.toml` — so the containers and
+  caches a worktree brought up leave with it.
 - **List and navigate.** `gwt list` opens an interactive list — move, filter,
   press <kbd>Enter</kbd> to go there or <kbd>Ctrl</kbd>+<kbd>d</kbd> to delete.
   `gwt cd <name>` jumps straight to one, with tab completion.
@@ -299,13 +300,15 @@ cd "$(gwt add feature/auth --quiet)"
 ### `gwt remove`
 
 ```
-gwt remove <name> [--with-branch] [--force]
+gwt remove <name> [--with-branch] [--force] [--no-hooks]
 ```
 
 Refuses to delete the main worktree, the worktree you are standing in, or one
 with uncommitted changes. `--with-branch` also deletes the branch, but only
 when it is merged into `HEAD` of the main worktree; `--force` overrides both
-checks.
+checks. `--no-hooks` skips the `pre_remove` and `post_remove` hooks, which is
+the way out when a hook itself is what stands between you and a stale
+worktree.
 
 ## Configuration
 
@@ -340,11 +343,41 @@ type = "command"
 command = "npm install"
 work_dir = "."         # relative to the new worktree
 env = { NODE_ENV = "development" }
+
+# Runs inside the worktree while it is still there. Commands only.
+# A failure calls the removal off.
+[[hooks.pre_remove]]
+type = "command"
+command = "docker compose down"
+
+# Runs once the worktree is gone, in the main worktree. Commands only.
+[[hooks.post_remove]]
+type = "command"
+command = "rm -rf \"$GWT_MAIN_WORKTREE/.cache/$GWT_WORKTREE_NAME\""
 ```
 
 With `base_dir = "../worktrees"`, a repository at `/home/me/repo` puts the
 worktree for `feature/auth` at `/home/me/worktrees/feature/auth`. Slashes in
 branch names become directories. An absolute `base_dir` is used as-is.
+
+### Hook phases
+
+| Phase | When | Runs in |
+| --- | --- | --- |
+| `pre_create` | Before the worktree exists | Main worktree |
+| `post_create` | Once the worktree is checked out | New worktree |
+| `pre_remove` | Before the worktree is deleted | The worktree being removed |
+| `post_remove` | After the worktree — and the branch, with `--with-branch` — is gone | Main worktree |
+
+`post_create` is the only phase with a worktree that is both there and staying,
+so it is the only one that takes `copy` and `symlink` hooks. The other three
+take `command` hooks, which is what stopping a container or deleting a volume
+needs anyway.
+
+The two removal phases run for `gwt remove` and for deleting from the picker
+alike — a worktree brought down by <kbd>Ctrl</kbd>+<kbd>d</kbd> is no less
+removed. The picker owns the screen while it runs, so it keeps what hooks print
+to itself and shows only what a failing one said last.
 
 ### Hook types
 
@@ -360,14 +393,17 @@ Every hook sees these environment variables:
 
 | Variable | Value |
 | --- | --- |
-| `GWT_BRANCH` | Branch being checked out |
+| `GWT_BRANCH` | Branch of the worktree, empty when it has none |
 | `GWT_WORKTREE_NAME` | Name of the worktree |
-| `GWT_WORKTREE_PATH` | Absolute path of the new worktree |
+| `GWT_WORKTREE_PATH` | Absolute path of the worktree — in `post_remove`, of the directory that was just deleted |
 | `GWT_MAIN_WORKTREE` | Absolute path of the main worktree |
 
-A failing hook stops the sequence and makes `gwt add` exit non-zero. When a
-`post_create` hook fails the worktree has already been created, so it is left
-in place for you to inspect. Pass `--no-hooks` to skip them entirely.
+A failing hook stops the sequence and makes the command exit non-zero, and the
+phase decides what that means. A `pre_create` or `pre_remove` failure blocks the
+operation: nothing is created, nothing is deleted. By the time `post_create` or
+`post_remove` fails the worktree has already been created or removed, so the
+error says so and the state stands. Pass `--no-hooks` to `gwt add` or
+`gwt remove` to skip them entirely.
 
 ## Contributing
 

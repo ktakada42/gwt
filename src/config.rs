@@ -56,6 +56,14 @@ pub struct Hooks {
     /// Run after the worktree is created, inside the new worktree.
     #[serde(default)]
     pub post_create: Vec<Hook>,
+    /// Run before the worktree is removed, inside it while it is still there.
+    /// Only `command` hooks are allowed. A failure calls the removal off.
+    #[serde(default)]
+    pub pre_remove: Vec<Hook>,
+    /// Run after the worktree (and its branch, with `--with-branch`) is gone.
+    /// Only `command` hooks are allowed, and they run in the main worktree.
+    #[serde(default)]
+    pub post_remove: Vec<Hook>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -188,6 +196,18 @@ base_dir = "../worktrees"
 # command = "npm install"
 # work_dir = "."
 # env = { NODE_ENV = "development" }
+
+# Hooks run before the worktree is removed, inside it (command hooks only).
+# A failing one calls the removal off.
+# [[hooks.pre_remove]]
+# type = "command"
+# command = "docker compose down"
+
+# Hooks run after the worktree is gone (command hooks only, run in the main
+# worktree). GWT_WORKTREE_PATH still names the directory that was removed.
+# [[hooks.post_remove]]
+# type = "command"
+# command = "rm -rf \"$GWT_MAIN_WORKTREE/.cache/$GWT_WORKTREE_NAME\""
 "#;
 
 #[cfg(test)]

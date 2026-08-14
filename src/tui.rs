@@ -322,6 +322,9 @@ fn delete_selected(repo: &Repo, tty: &mut File, picker: &mut Picker) -> Result<O
         force: true,
         with_branch,
         quiet: true,
+        // Deleting from the picker is still deleting: a hook that tears down
+        // containers or caches has to run whichever way it was asked for.
+        no_hooks: false,
     };
     let outcome = match remove_worktree(repo, &worktree, opts) {
         Ok(()) => {
@@ -330,7 +333,10 @@ fn delete_selected(repo: &Repo, tty: &mut File, picker: &mut Picker) -> Result<O
             let extra = if with_branch { " and its branch" } else { "" };
             Some(format!("removed `{label}`{extra}"))
         }
-        Err(e) => Some(format!("failed to remove `{label}`: {e}")),
+        // `{e:#}` rather than `{e}`: the top of the chain says only which hook
+        // failed, and what it printed before giving up is further down. The
+        // line is cut to the terminal width anyway.
+        Err(e) => Some(format!("failed to remove `{label}`: {e:#}")),
     };
 
     // Anything typed while git was working was meant for the dialog, not for

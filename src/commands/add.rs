@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use crate::cli::AddArgs;
 use crate::config::normalize;
 use crate::git;
-use crate::hooks::{self, HookContext, Phase};
+use crate::hooks::{self, HookContext, Phase, Reporting};
 use crate::repo::Repo;
 
 /// How the branch of the new worktree is obtained.
@@ -58,12 +58,18 @@ pub fn run(args: AddArgs) -> Result<()> {
         branch: branch.clone(),
     };
 
+    let reporting = if args.quiet {
+        Reporting::Quiet
+    } else {
+        Reporting::Announce
+    };
+
     if !args.no_hooks {
         hooks::run_all(
             &repo.config.hooks.pre_create,
             Phase::PreCreate,
             &ctx,
-            !args.quiet,
+            reporting,
         )?;
     }
 
@@ -91,7 +97,7 @@ pub fn run(args: AddArgs) -> Result<()> {
             &repo.config.hooks.post_create,
             Phase::PostCreate,
             &ctx,
-            !args.quiet,
+            reporting,
         )
         .context("the worktree was created, but a post_create hook failed")?;
     }

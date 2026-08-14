@@ -551,6 +551,86 @@ fn remove_keeps_unmerged_branches() {
 }
 
 #[test]
+fn hooks_run_before_and_after_removal() {
+    let fx = Fixture::new();
+    fx.write_config(
+        r#"
+version = "1"
+
+[[hooks.pre_remove]]
+type = "command"
+command = "pwd -P > \"$GWT_MAIN_WORKTREE/pre-remove\""
+
+[[hooks.post_remove]]
+type = "command"
+command = "printf %s \"$GWT_WORKTREE_NAME $GWT_BRANCH $GWT_WORKTREE_PATH\" > post-remove"
+"#,
+    );
+    let path = PathBuf::from(fx.gwt_ok(["add", "feature/gone"]));
+
+    let out = fx.gwt(["remove", "feature/gone", "--with-branch"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!path.exists());
+
+    // pre_remove ran inside the worktree, while there still was one.
+    assert_eq!(
+        std::fs::read_to_string(fx.repo.join("pre-remove")).unwrap(),
+        format!("{}\n", path.display())
+    );
+    // post_remove ran in the main worktree, and still knows what went away.
+    assert_eq!(
+        std::fs::read_to_string(fx.repo.join("post-remove")).unwrap(),
+        format!("feature/gone feature/gone {}", path.display())
+    );
+}
+
+#[test]
+fn a_failing_pre_remove_hook_keeps_the_worktree() {
+    let fx = Fixture::new();
+    fx.write_config("[[hooks.pre_remove]]\ntype = \"command\"\ncommand = \"exit 7\"\n");
+    let path = PathBuf::from(fx.gwt_ok(["add", "kept"]));
+
+    let out = fx.gwt(["remove", "kept"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("pre_remove hook failed"));
+    assert!(path.exists(), "the removal should have been called off");
+
+    // The escape hatch still works when a hook is the thing that is broken.
+    assert!(fx.gwt(["remove", "kept", "--no-hooks"]).status.success());
+    assert!(!path.exists());
+}
+
+#[test]
+fn a_failing_post_remove_hook_reports_the_removal_that_already_happened() {
+    let fx = Fixture::new();
+    fx.write_config("[[hooks.post_remove]]\ntype = \"command\"\ncommand = \"exit 7\"\n");
+    let path = PathBuf::from(fx.gwt_ok(["add", "swept"]));
+
+    let out = fx.gwt(["remove", "swept"]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("post_remove hook failed"), "{stderr}");
+    assert!(stderr.contains("the worktree was removed"), "{stderr}");
+    assert!(!path.exists());
+}
+
+#[test]
+fn copy_hooks_are_refused_around_removal() {
+    let fx = Fixture::new();
+    fx.write_config("[[hooks.pre_remove]]\ntype = \"copy\"\nfrom = \".env\"\n");
+    let path = PathBuf::from(fx.gwt_ok(["add", "misconfigured"]));
+
+    let out = fx.gwt(["remove", "misconfigured"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("only supported in post_create"));
+    assert!(path.exists());
+}
+
+#[test]
 fn init_writes_a_config_template() {
     let fx = Fixture::new();
     assert!(fx.gwt(["init"]).status.success());

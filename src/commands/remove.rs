@@ -4,6 +4,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::cli::RemoveArgs;
 use crate::git::{self, Worktree};
+use crate::hooks::{self, HookContext, Phase, Reporting};
 use crate::repo::Repo;
 
 /// What a removal is allowed to do.
@@ -15,6 +16,8 @@ pub struct RemoveOptions {
     pub with_branch: bool,
     /// Keep git quiet — the interactive picker owns the terminal.
     pub quiet: bool,
+    /// Skip the pre_remove and post_remove hooks.
+    pub no_hooks: bool,
 }
 
 /// Refuses removals that would leave the user stranded or lose work.
@@ -35,9 +38,36 @@ pub fn removal_blocker(repo: &Repo, worktree: &Worktree, force: bool) -> Option<
 }
 
 /// Removes a worktree, and its branch when asked.
+///
+/// The hooks bracket the whole removal: `pre_remove` while the worktree is
+/// still there, so it can stop what is running inside it or make the files
+/// deletable, and `post_remove` once the worktree — and the branch, when
+/// `--with-branch` was given — is gone, so cleanup outside the repository has
+/// nothing left to trip over.
 pub fn remove_worktree(repo: &Repo, worktree: &Worktree, opts: RemoveOptions) -> Result<()> {
     if let Some(reason) = removal_blocker(repo, worktree, opts.force) {
         bail!("cannot remove {}: {reason}", worktree.path.display());
+    }
+
+    let ctx = HookContext {
+        main_worktree: repo.main.clone(),
+        worktree_path: worktree.path.clone(),
+        name: worktree.name(),
+        branch: worktree.branch.clone().unwrap_or_default(),
+    };
+    let reporting = if opts.quiet {
+        Reporting::Captured
+    } else {
+        Reporting::Announce
+    };
+
+    if !opts.no_hooks {
+        hooks::run_all(
+            &repo.config.hooks.pre_remove,
+            Phase::PreRemove,
+            &ctx,
+            reporting,
+        )?;
     }
 
     let mut git_args = vec!["worktree".to_string(), "remove".to_string()];
@@ -58,6 +88,16 @@ pub fn remove_worktree(repo: &Repo, worktree: &Worktree, opts: RemoveOptions) ->
         let flag = if opts.force { "-D" } else { "-d" };
         run_git(&repo.main, ["branch", flag, branch], opts.quiet)
             .with_context(|| format!("failed to delete branch `{branch}`"))?;
+    }
+
+    if !opts.no_hooks {
+        hooks::run_all(
+            &repo.config.hooks.post_remove,
+            Phase::PostRemove,
+            &ctx,
+            reporting,
+        )
+        .context("the worktree was removed, but a post_remove hook failed")?;
     }
     Ok(())
 }
@@ -102,6 +142,7 @@ pub fn run(args: RemoveArgs) -> Result<()> {
             force: args.force,
             with_branch: args.with_branch,
             quiet: false,
+            no_hooks: args.no_hooks,
         },
     )?;
     eprintln!("Removed {}", worktree.path.display());

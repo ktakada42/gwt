@@ -7,7 +7,8 @@ use anyhow::{bail, Context, Result};
 
 use crate::config::{normalize, Hook};
 
-/// Everything a hook is allowed to know about the worktree being created.
+/// Everything a hook is allowed to know about the worktree being created or
+/// removed.
 pub struct HookContext {
     pub main_worktree: PathBuf,
     pub worktree_path: PathBuf,
@@ -37,6 +38,8 @@ impl HookContext {
 pub enum Phase {
     PreCreate,
     PostCreate,
+    PreRemove,
+    PostRemove,
 }
 
 impl Phase {
@@ -44,36 +47,73 @@ impl Phase {
         match self {
             Phase::PreCreate => "pre_create",
             Phase::PostCreate => "post_create",
+            Phase::PreRemove => "pre_remove",
+            Phase::PostRemove => "post_remove",
         }
     }
+
+    /// Why this phase has nothing to copy into or link from.
+    ///
+    /// Only `post_create` hands a hook a worktree that is both there and
+    /// still wanted; the other three are told apart in the error so a
+    /// misplaced `copy` says what is actually wrong with it.
+    fn no_worktree_reason(self) -> &'static str {
+        match self {
+            Phase::PreCreate => "the worktree does not exist yet",
+            Phase::PostCreate => unreachable!("post_create has a worktree"),
+            Phase::PreRemove => "the worktree is about to be deleted",
+            Phase::PostRemove => "the worktree is already gone",
+        }
+    }
+}
+
+/// How much of a hook run reaches the terminal.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Reporting {
+    /// Name each hook as it starts, and let it write to the terminal.
+    Announce,
+    /// Say nothing, but still let hooks write to the terminal (`--quiet`).
+    Quiet,
+    /// Say nothing and capture what hooks print, for the picker: it owns an
+    /// alternate screen in raw mode, where stray output lands in the middle
+    /// of the list with its line breaks mangled. A failing hook's last words
+    /// are put in the error instead, which is what the picker shows.
+    Captured,
 }
 
 /// Runs every hook of a phase in order, stopping at the first failure.
 ///
 /// Progress goes to stderr so that stdout stays usable for `--quiet` output.
-pub fn run_all(hooks: &[Hook], phase: Phase, ctx: &HookContext, verbose: bool) -> Result<()> {
+pub fn run_all(
+    hooks: &[Hook],
+    phase: Phase,
+    ctx: &HookContext,
+    reporting: Reporting,
+) -> Result<()> {
     if hooks.is_empty() {
         return Ok(());
     }
-    if verbose {
+    let announce = reporting == Reporting::Announce;
+    if announce {
         eprintln!("Running {} hooks...", phase.label());
     }
     for (i, hook) in hooks.iter().enumerate() {
-        if verbose {
+        if announce {
             eprintln!("  [{}/{}] {}", i + 1, hooks.len(), hook.summary());
         }
-        run_one(hook, phase, ctx)
+        run_one(hook, phase, ctx, reporting)
             .with_context(|| format!("{} hook failed: {}", phase.label(), hook.summary()))?;
     }
     Ok(())
 }
 
-fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext) -> Result<()> {
+fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext, reporting: Reporting) -> Result<()> {
     match hook {
-        Hook::Copy { .. } | Hook::Symlink { .. } if phase == Phase::PreCreate => {
+        Hook::Copy { .. } | Hook::Symlink { .. } if phase != Phase::PostCreate => {
             bail!(
-                "`{}` hooks are only supported in post_create (the worktree does not exist yet)",
-                hook.kind()
+                "`{}` hooks are only supported in post_create ({})",
+                hook.kind(),
+                phase.no_worktree_reason()
             )
         }
         Hook::Copy { from, to } => {
@@ -108,9 +148,11 @@ fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext) -> Result<()> {
             env,
             work_dir,
         } => {
+            // A hook runs where its work is: in the worktree while there is
+            // one, in the main worktree before it exists and after it is gone.
             let base = match phase {
-                Phase::PreCreate => &ctx.main_worktree,
-                Phase::PostCreate => &ctx.worktree_path,
+                Phase::PostCreate | Phase::PreRemove => &ctx.worktree_path,
+                Phase::PreCreate | Phase::PostRemove => &ctx.main_worktree,
             };
             let cwd = match work_dir {
                 Some(dir) => resolve_inside(base, dir)?,
@@ -124,6 +166,19 @@ fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext) -> Result<()> {
             for (k, v) in env {
                 cmd.env(k, v);
             }
+            if reporting == Reporting::Captured {
+                let out = cmd
+                    .output()
+                    .with_context(|| format!("failed to spawn command: {command}"))?;
+                if !out.status.success() {
+                    bail!(
+                        "command exited with status {}{}",
+                        out.status,
+                        tail(&out.stderr)
+                    );
+                }
+                return Ok(());
+            }
             let status = cmd
                 .status()
                 .with_context(|| format!("failed to spawn command: {command}"))?;
@@ -132,6 +187,25 @@ fn run_one(hook: &Hook, phase: Phase, ctx: &HookContext) -> Result<()> {
             }
             Ok(())
         }
+    }
+}
+
+/// The last few lines a captured hook wrote to stderr.
+///
+/// Captured output is otherwise thrown away, and "exited with status 1" on its
+/// own tells you nothing about which command gave up or why.
+fn tail(stderr: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stderr);
+    let lines: Vec<&str> = text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let start = lines.len().saturating_sub(3);
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!(": {}", lines[start..].join("; "))
     }
 }
 
@@ -242,7 +316,7 @@ mod tests {
             from: ".env".into(),
             to: None,
         };
-        assert!(run_one(&hook, Phase::PreCreate, &ctx).is_err());
+        assert!(run_one(&hook, Phase::PreCreate, &ctx, Reporting::Announce).is_err());
     }
 
     #[test]
@@ -269,6 +343,7 @@ mod tests {
             },
             Phase::PostCreate,
             &ctx,
+            Reporting::Announce,
         )
         .unwrap();
         run_one(
@@ -278,6 +353,7 @@ mod tests {
             },
             Phase::PostCreate,
             &ctx,
+            Reporting::Announce,
         )
         .unwrap();
 
@@ -314,6 +390,7 @@ mod tests {
             },
             Phase::PostCreate,
             &ctx,
+            Reporting::Announce,
         )
         .unwrap();
 
@@ -334,6 +411,87 @@ mod tests {
             env: Default::default(),
             work_dir: None,
         };
-        assert!(run_one(&hook, Phase::PostCreate, &ctx).is_err());
+        assert!(run_one(&hook, Phase::PostCreate, &ctx, Reporting::Announce).is_err());
+    }
+
+    #[test]
+    fn copy_and_symlink_are_rejected_around_removal() {
+        let ctx = HookContext {
+            main_worktree: PathBuf::from("/repo"),
+            worktree_path: PathBuf::from("/wt"),
+            name: "feat".into(),
+            branch: "feat".into(),
+        };
+        let hook = Hook::Symlink {
+            from: "node_modules".into(),
+            to: None,
+        };
+        for phase in [Phase::PreRemove, Phase::PostRemove] {
+            let err = run_one(&hook, phase, &ctx, Reporting::Announce).unwrap_err();
+            assert!(
+                err.to_string().contains("only supported in post_create"),
+                "unexpected error: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn pre_remove_runs_in_the_worktree_and_post_remove_in_the_main_one() {
+        let tmp = tempfile::tempdir().unwrap();
+        let main = tmp.path().join("main");
+        let wt = tmp.path().join("wt");
+        std::fs::create_dir_all(&main).unwrap();
+        std::fs::create_dir_all(&wt).unwrap();
+
+        let ctx = HookContext {
+            main_worktree: main.clone(),
+            worktree_path: wt.clone(),
+            name: "feat".into(),
+            branch: "feat".into(),
+        };
+        let hook = Hook::Command {
+            command: "pwd > where".into(),
+            env: Default::default(),
+            work_dir: None,
+        };
+
+        run_one(&hook, Phase::PreRemove, &ctx, Reporting::Announce).unwrap();
+        run_one(&hook, Phase::PostRemove, &ctx, Reporting::Announce).unwrap();
+
+        assert!(
+            wt.join("where").exists(),
+            "pre_remove ran outside the worktree"
+        );
+        assert!(
+            main.join("where").exists(),
+            "post_remove ran outside the main worktree"
+        );
+    }
+
+    #[test]
+    fn captured_output_ends_up_in_the_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ctx = HookContext {
+            main_worktree: tmp.path().to_path_buf(),
+            worktree_path: tmp.path().to_path_buf(),
+            name: "feat".into(),
+            branch: "feat".into(),
+        };
+        let hook = Hook::Command {
+            command: "echo nope >&2; exit 1".into(),
+            env: Default::default(),
+            work_dir: None,
+        };
+
+        let err = run_one(&hook, Phase::PreRemove, &ctx, Reporting::Captured).unwrap_err();
+        assert!(err.to_string().contains("nope"), "unexpected error: {err}");
+    }
+
+    #[test]
+    fn tail_keeps_the_last_lines_only() {
+        assert_eq!(tail(b""), "");
+        assert_eq!(tail(b"\n  \n"), "");
+        assert_eq!(tail(b"one\ntwo\n"), ": one; two");
+        assert_eq!(tail(b"1\n2\n3\n4\n5\n"), ": 3; 4; 5");
     }
 }

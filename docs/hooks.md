@@ -4,6 +4,15 @@ Hooks are declared in `.gwx.toml` and in the user-wide config; see
 [Configuration](configuration.md) for the files themselves and how they
 combine.
 
+> [!WARNING]
+> **A `command` hook is code the repository runs on your machine.** `.gwx.toml`
+> is a committed file, so `gwx add` in a repository you have just cloned runs
+> whatever its hooks say, through `/bin/sh`, as you — the same bargain as
+> `npm install` and its scripts, or a `Makefile` you did not read. Nothing
+> escalates and nothing is sandboxed. In a repository you do not know, read the
+> file first, or pass `--no-hooks` until you have. `gwx list` and `gwx cd` never
+> run hooks; `add`, `remove` and `clean` do.
+
 ## Phases
 
 | Phase | When | Runs in |
@@ -76,6 +85,29 @@ Every hook sees these environment variables:
 Commands run through `/bin/sh -c` rather than `$SHELL`, so a hook behaves the
 same for everyone who clones the repository, and without the `GIT_DIR`-style
 variables that would point git at whatever repository invoked gwx.
+
+The values arrive as environment variables and nothing is pasted into the
+command line, so a branch name holding characters a shell would act on stays a
+name — `sh` does not re-evaluate what a parameter expands to. Quoting them is
+still worth it for the ordinary reason: an unquoted `$GWX_BRANCH` is split on
+spaces, and a path is not.
+
+## The terminal
+
+A `command` hook inherits the terminal gwx was given, stdin included, so a hook
+that needs an answer can ask for one:
+
+```toml
+[[hooks.post_create]]
+type = "command"
+command = 'printf "API token: "; read -r token; printf "TOKEN=%s\n" "$token" > .env'
+```
+
+The exception is a worktree deleted from inside the picker. It holds the screen
+in raw mode while the removal hooks run, so there it captures what they print
+and closes their stdin: a hook that waits for input reads end-of-file instead of
+stalling behind a prompt nobody can see. `gwx remove` and `gwx clean` run the
+same hooks with the terminal attached.
 
 ## When a hook fails
 

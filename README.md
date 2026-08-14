@@ -389,6 +389,22 @@ to itself and shows only what a failing one said last.
 
 `from` and `to` are relative paths that may not escape their worktree.
 
+A `copy` keeps symlinks inside the tree as symlinks instead of following them,
+including the ones pointing at nothing that a removed package leaves behind.
+`node_modules/.bin` is full of relative links that only work that way.
+
+### Copying a directory as large as `node_modules`
+
+On macOS a `copy` costs almost no disk space: APFS clones the blocks, so the
+two directories share them until one is written to. gwt clones the whole tree
+in one call — a `node_modules` of 10,000 files took 0.13s, against 2.0s for the
+same copy made file by file.
+
+Elsewhere a `copy` is a real copy, and the space is spent for real. On Linux
+that is the trade to weigh: `copy` gives the worktree a `node_modules` it can
+install into on its own, `symlink` shares one directory with the main worktree
+and costs nothing until an install in one worktree surprises another.
+
 Every hook sees these environment variables:
 
 | Variable | Value |

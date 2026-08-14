@@ -334,6 +334,37 @@ fn a_failing_hook_reports_an_error() {
 }
 
 #[test]
+fn a_copy_hook_keeps_symlinks_and_survives_broken_ones() {
+    let fx = Fixture::new();
+    let modules = fx.repo.join("node_modules");
+    std::fs::create_dir_all(modules.join("pkg")).unwrap();
+    std::fs::write(modules.join("pkg/index.js"), "1").unwrap();
+    std::os::unix::fs::symlink("pkg/index.js", modules.join("bin")).unwrap();
+    // What a removed package leaves behind. Following it used to fail the
+    // hook and leave the copy half done.
+    std::os::unix::fs::symlink("gone.js", modules.join("dangling")).unwrap();
+    fx.write_config("[[hooks.post_create]]\ntype = \"copy\"\nfrom = \"node_modules\"\n");
+
+    let path = PathBuf::from(fx.gwt_ok(["add", "linked"]));
+
+    let copied = path.join("node_modules");
+    assert!(copied.join("bin").symlink_metadata().unwrap().is_symlink());
+    assert_eq!(
+        std::fs::read_link(copied.join("bin")).unwrap(),
+        Path::new("pkg/index.js")
+    );
+    assert!(copied
+        .join("dangling")
+        .symlink_metadata()
+        .unwrap()
+        .is_symlink());
+    assert_eq!(
+        std::fs::read_to_string(copied.join("pkg/index.js")).unwrap(),
+        "1"
+    );
+}
+
+#[test]
 fn no_hooks_skips_them() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.post_create]]\ntype = \"command\"\ncommand = \"exit 7\"\n");

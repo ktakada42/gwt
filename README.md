@@ -1,4 +1,4 @@
-# gwx
+# gwx — git worktree, extended
 
 [![CI](https://github.com/ktakada42/gwx/actions/workflows/ci.yml/badge.svg)](https://github.com/ktakada42/gwx/actions/workflows/ci.yml)
 [![Release](https://github.com/ktakada42/gwx/actions/workflows/release.yml/badge.svg)](https://github.com/ktakada42/gwx/actions/workflows/release.yml)
@@ -6,7 +6,8 @@
 [![GitHub release](https://img.shields.io/github/v/release/ktakada42/gwx)](https://github.com/ktakada42/gwx/releases/latest)
 [![License](https://img.shields.io/github/license/ktakada42/gwx)](LICENSE)
 
-A friendly `git worktree` manager, written in Rust.
+A friendly `git worktree` manager, written in Rust. The name is what it does:
+`git worktree` with the parts you would otherwise do by hand.
 
 `git worktree` is great, but it makes you repeat yourself: you type the branch
 name, then a path for it, then you copy over your `.env`, then you reinstall

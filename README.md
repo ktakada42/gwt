@@ -4,6 +4,7 @@
 [![Release](https://github.com/ktakada42/gwx/actions/workflows/release.yml/badge.svg)](https://github.com/ktakada42/gwx/actions/workflows/release.yml)
 [![codecov](https://codecov.io/gh/ktakada42/gwx/graph/badge.svg)](https://codecov.io/gh/ktakada42/gwx)
 [![GitHub release](https://img.shields.io/github/v/release/ktakada42/gwx)](https://github.com/ktakada42/gwx/releases/latest)
+[![crates.io](https://img.shields.io/crates/v/gwx)](https://crates.io/crates/gwx)
 [![License](https://img.shields.io/github/license/ktakada42/gwx)](https://github.com/ktakada42/gwx/blob/main/LICENSE)
 
 A friendly `git worktree` manager, written in Rust. The name is what it does:
@@ -81,10 +82,14 @@ curl -fsSL https://raw.githubusercontent.com/ktakada42/gwx/main/install.sh | INS
 Requires a [Rust](https://rustup.rs) toolchain.
 
 ```bash
-cargo install --git https://github.com/ktakada42/gwx
+cargo install gwx
 ```
 
-`gwx` is not on crates.io, so `--git` is the way in for now.
+For the unreleased `main` instead of the latest release:
+
+```bash
+cargo install --git https://github.com/ktakada42/gwx
+```
 
 ### Build from source
 

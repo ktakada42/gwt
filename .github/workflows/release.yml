@@ -93,10 +93,15 @@ jobs:
           fi
           cat notes.md
 
+      # The title is the tag, said once. Without `--title` the release is
+      # created nameless and GitHub falls back to the annotated tag's subject
+      # line, which is how v2.1.0 onwards came out named "gwx v2.1.0" while
+      # everything up to v2.0.0 was named after its tag.
       - name: Create release and upload assets
         run: |
           gh release create "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
+            --title "${{ github.ref_name }}" \
             --notes-file notes.md \
             *.tar.gz
         env:

@@ -79,12 +79,18 @@ should appear on the Releases page, and always tag with `--cleanup=verbatim`:
 
 ```bash
 git tag -a --cleanup=verbatim -F - v2.1.0 <<'EOF'
-gwx v2.1.0
+v2.1.0
 
 ## What changed
 ...
 EOF
 ```
+
+The subject line is git's, not the reader's: the workflow takes the body from
+`%(contents:body)` and names the release after the tag, so whatever stands on
+the first line never reaches the Releases page. Keep it to the version — a
+subject that repeated the tool's name is what put "gwx v2.1.0" on three release
+titles before `--title` was passed explicitly.
 
 Without it, git's default cleanup treats every `##` heading as a comment and
 strips it, silently — the message keeps its prose and loses its structure, and

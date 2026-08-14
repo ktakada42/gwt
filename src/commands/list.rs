@@ -49,7 +49,14 @@ pub fn run(args: ListArgs) -> Result<()> {
         .iter()
         .map(|r| r.name.chars().count())
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .max(NAME_HEADER.len());
+
+    // The picker labels its columns, and this is the same table without the
+    // terminal to draw it in. `--no-header` is for the pipe on the other end.
+    if !args.no_header {
+        println!("  {NAME_HEADER:<name_width$}  {HEAD_HEADER}  {PATH_HEADER}");
+    }
 
     for row in &rows {
         let marker = if row.current { '*' } else { ' ' };
@@ -60,6 +67,11 @@ pub fn run(args: ListArgs) -> Result<()> {
     }
     Ok(())
 }
+
+/// Column labels, the same words the picker uses.
+const NAME_HEADER: &str = "WORKTREE";
+const HEAD_HEADER: &str = "HEAD   ";
+const PATH_HEADER: &str = "PATH";
 
 struct Row {
     current: bool,

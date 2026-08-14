@@ -12,7 +12,9 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::{cursor, queue, style, terminal};
 
-use crate::commands::clean::Candidate;
+use crate::commands::clean::{
+    Candidate, NAME_HEADER as CLEAN_NAME_HEADER, NOTE_HEADER, VERDICT_HEADER,
+};
 use crate::commands::remove::{removal_blocker, remove_worktree, RemoveOptions};
 use crate::git::{self, Worktree};
 use crate::repo::Repo;
@@ -915,14 +917,14 @@ fn draw_hints(tty: &mut File, hints: &[&Hint]) -> Result<()> {
 /// where Enter sometimes moves you and sometimes deletes.
 ///
 /// Returns the indices to remove, or `None` when the user backed out.
-pub fn choose_to_clean(candidates: &[Candidate]) -> Result<Option<Vec<usize>>> {
+pub fn choose_to_clean(candidates: &[Candidate], with_branch: bool) -> Result<Option<Vec<usize>>> {
     let mut screen = Screen::open()?;
     let mut ticked: Vec<bool> = candidates.iter().map(|c| c.state.preselected()).collect();
     let mut cursor_at = 0usize;
     let last = candidates.len() - 1;
 
     loop {
-        draw_clean(&mut screen.tty, candidates, &ticked, cursor_at)?;
+        draw_clean(&mut screen.tty, candidates, &ticked, cursor_at, with_branch)?;
 
         let Event::Key(key) = event::read()? else {
             continue;
@@ -962,16 +964,30 @@ fn draw_clean(
     candidates: &[Candidate],
     ticked: &[bool],
     cursor_at: usize,
+    with_branch: bool,
 ) -> Result<()> {
     let (cols, rows) = terminal::size()?;
     let cols = cols as usize;
+    let verdicts: Vec<String> = candidates
+        .iter()
+        .map(|c| c.state.verdict(with_branch))
+        .collect();
     let width = candidates
         .iter()
         .map(|c| c.name.chars().count())
         .max()
-        .unwrap_or(0);
+        .unwrap_or(0)
+        .max(CLEAN_NAME_HEADER.len());
+    let verdict_width = verdicts
+        .iter()
+        .map(|v| v.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(VERDICT_HEADER.len());
 
-    let header = format!("      {:<width$}  {:<6}  {}", "WORKTREE", "STATUS", "NOTE");
+    let header = format!(
+        "      {CLEAN_NAME_HEADER:<width$}  {VERDICT_HEADER:<verdict_width$}  {NOTE_HEADER}"
+    );
     queue!(
         tty,
         terminal::Clear(terminal::ClearType::All),
@@ -990,11 +1006,11 @@ fn draw_clean(
             break;
         }
         let line = format!(
-            "{} [{}] {:<width$}  {:<6}  {}",
+            "{} [{}] {:<width$}  {:<verdict_width$}  {}",
             if i == cursor_at { ">" } else { " " },
             if ticked[i] { "x" } else { " " },
             candidate.name,
-            candidate.state.label(),
+            verdicts[i],
             candidate.note,
         );
         queue!(tty, cursor::MoveTo(0, row))?;

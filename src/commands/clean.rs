@@ -38,6 +38,26 @@ impl State {
         }
     }
 
+    /// The column that answers the question the screen is asking.
+    ///
+    /// `dirty` is the only state where removing the worktree destroys
+    /// anything, so it is the only "no" — until `--with-branch` is given, at
+    /// which point a `local` branch takes its commits with it and becomes one
+    /// too. The state stays in brackets rather than being replaced by the
+    /// verdict, because "no" on its own does not say what to do about it.
+    pub fn verdict(self, with_branch: bool) -> String {
+        let safe = match self {
+            State::Dirty => false,
+            State::Local => !with_branch,
+            State::Done | State::Pushed => true,
+        };
+        let yes_no = if safe { "yes" } else { "no" };
+        match self {
+            State::Done => yes_no.to_string(),
+            other => format!("{yes_no} ({})", other.label()),
+        }
+    }
+
     /// Whether the row starts out ticked.
     ///
     /// Only `done`. The others are removable — `pushed` and `local` lose
@@ -68,13 +88,13 @@ pub fn run(args: CleanArgs) -> Result<()> {
     // Without a terminal there is nobody to tick the boxes, and guessing is
     // the one thing a command that deletes things must not do.
     if !tui::is_available() {
-        print_table(&candidates);
+        print_table(&candidates, args.with_branch);
         eprintln!();
         eprintln!("gwx clean needs a terminal to choose in; nothing was removed.");
         return Ok(());
     }
 
-    let Some(chosen) = tui::choose_to_clean(&candidates)? else {
+    let Some(chosen) = tui::choose_to_clean(&candidates, args.with_branch)? else {
         return Ok(());
     };
     if chosen.is_empty() {
@@ -178,21 +198,37 @@ fn classify(dirty: bool, merged: bool, track: Tracking) -> (State, String) {
 }
 
 /// The same rows as the picker, for a terminal that cannot draw one.
-fn print_table(candidates: &[Candidate]) {
-    let width = candidates
+fn print_table(candidates: &[Candidate], with_branch: bool) {
+    let verdicts: Vec<String> = candidates
+        .iter()
+        .map(|c| c.state.verdict(with_branch))
+        .collect();
+    let name_width = candidates
         .iter()
         .map(|c| c.name.chars().count())
         .max()
-        .unwrap_or(0);
-    for candidate in candidates {
+        .unwrap_or(0)
+        .max(NAME_HEADER.len());
+    let verdict_width = verdicts
+        .iter()
+        .map(|v| v.chars().count())
+        .max()
+        .unwrap_or(0)
+        .max(VERDICT_HEADER.len());
+
+    println!("{NAME_HEADER:<name_width$}  {VERDICT_HEADER:<verdict_width$}  {NOTE_HEADER}");
+    for (candidate, verdict) in candidates.iter().zip(&verdicts) {
         println!(
-            "{:<width$}  {:<6}  {}",
-            candidate.name,
-            candidate.state.label(),
-            candidate.note,
+            "{:<name_width$}  {verdict:<verdict_width$}  {}",
+            candidate.name, candidate.note,
         );
     }
 }
+
+/// Column labels, shared with the interactive screen.
+pub const NAME_HEADER: &str = "WORKTREE";
+pub const VERDICT_HEADER: &str = "SAFE TO REMOVE";
+pub const NOTE_HEADER: &str = "NOTE";
 
 #[cfg(test)]
 mod tests {
@@ -226,6 +262,23 @@ mod tests {
         assert_eq!(classify(false, false, Tracking::Ahead(3)).0, State::Local);
         assert_eq!(classify(false, false, Tracking::Untracked).0, State::Local);
         assert_eq!(classify(false, false, Tracking::Gone).0, State::Local);
+    }
+
+    #[test]
+    fn the_verdict_answers_before_it_classifies() {
+        assert_eq!(State::Done.verdict(false), "yes");
+        assert_eq!(State::Pushed.verdict(false), "yes (pushed)");
+        assert_eq!(State::Local.verdict(false), "yes (local)");
+        assert_eq!(State::Dirty.verdict(false), "no (dirty)");
+    }
+
+    #[test]
+    fn taking_the_branch_too_makes_local_commits_unsafe() {
+        // The worktree alone loses nothing; the branch is what holds the
+        // commits that are on no remote.
+        assert_eq!(State::Local.verdict(true), "no (local)");
+        assert_eq!(State::Pushed.verdict(true), "yes (pushed)");
+        assert_eq!(State::Done.verdict(true), "yes");
     }
 
     #[test]

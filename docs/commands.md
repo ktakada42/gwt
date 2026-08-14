@@ -77,7 +77,19 @@ Opens [the picker](picker.md) when there is a terminal to draw on and more
 than one worktree to choose from. Otherwise it prints a table.
 
 - `--plain` prints the table even in a terminal, for reading or piping.
+- `--no-header` leaves out the column labels, which is what a pipe wants.
 - `--paths` prints one absolute path per line, and nothing else.
+
+```console
+$ gwx list --plain
+  WORKTREE         HEAD     PATH
+* @                a1b2c3d  /home/me/repo
+  feature/auth     a1b2c3d  /home/me/worktrees/feature/auth
+```
+
+The table and the picker label their columns the same way. The picker leaves
+out `PATH`, which gwx derives from the branch name, and puts a `STATUS` column
+there instead.
 
 ## `gwx shell-init` and `gwx completion`
 

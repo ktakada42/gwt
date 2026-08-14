@@ -111,6 +111,10 @@ pub struct ListArgs {
     /// Print the table instead of opening the interactive picker
     #[arg(long, conflicts_with = "paths")]
     pub plain: bool,
+
+    /// Leave out the column headers, for feeding the table to something else
+    #[arg(long, conflicts_with = "paths")]
+    pub no_header: bool,
 }
 
 #[derive(Debug, clap::Args)]

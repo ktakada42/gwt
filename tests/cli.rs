@@ -526,12 +526,21 @@ fn list_shows_every_worktree() {
     fx.gwx_ok(["add", "feature/one"]);
 
     let listing = fx.gwx_ok(["list"]);
+    let mut lines = listing.lines();
+    // The columns are labelled, the same way the picker labels them.
+    let header = lines.next().unwrap();
+    assert!(header.contains("WORKTREE"), "{listing}");
+    assert!(header.contains("HEAD"), "{listing}");
+    assert!(header.contains("PATH"), "{listing}");
     assert!(listing.contains('@'), "{listing}");
     assert!(listing.contains("feature/one"), "{listing}");
-    assert!(
-        listing.lines().next().unwrap().starts_with('*'),
-        "{listing}"
-    );
+    // The row after it marks the worktree you are standing in.
+    assert!(lines.next().unwrap().starts_with('*'), "{listing}");
+
+    // `--no-header` is what a pipe wants: rows only.
+    let bare = fx.gwx_ok(["list", "--no-header"]);
+    assert!(!bare.contains("WORKTREE"), "{bare}");
+    assert!(bare.lines().next().unwrap().starts_with('*'), "{bare}");
 
     let paths = fx.gwx_ok(["list", "--paths"]);
     assert_eq!(paths.lines().count(), 2);
@@ -834,6 +843,7 @@ fn clean_sorts_worktrees_by_what_removing_them_would_cost() {
     );
     let table = String::from_utf8_lossy(&out.stdout);
 
+    assert!(table.contains("SAFE TO REMOVE"), "{table}");
     let row = |name: &str| {
         table
             .lines()
@@ -841,10 +851,24 @@ fn clean_sorts_worktrees_by_what_removing_them_would_cost() {
             .unwrap_or_else(|| panic!("no row for {name} in:\n{table}"))
             .to_string()
     };
-    assert!(row("feature/merged").contains("done"), "{table}");
-    assert!(row("feature/pushed").contains("pushed"), "{table}");
-    assert!(row("hotfix/local").contains("local"), "{table}");
-    assert!(row("wip/refactor").contains("dirty"), "{table}");
+    // The verdict comes first, the state that produced it in brackets.
+    assert!(row("feature/merged").contains("yes  "), "{table}");
+    assert!(row("feature/pushed").contains("yes (pushed)"), "{table}");
+    assert!(row("hotfix/local").contains("yes (local)"), "{table}");
+    assert!(row("wip/refactor").contains("no (dirty)"), "{table}");
+
+    // Taking the branch too is what puts local commits at risk.
+    let out = fx.gwx(["clean", "--with-branch"]);
+    let table = String::from_utf8_lossy(&out.stdout);
+    let row = |name: &str| {
+        table
+            .lines()
+            .find(|l| l.starts_with(name))
+            .unwrap_or_else(|| panic!("no row for {name} in:\n{table}"))
+            .to_string()
+    };
+    assert!(row("hotfix/local").contains("no (local)"), "{table}");
+    assert!(row("feature/pushed").contains("yes (pushed)"), "{table}");
 
     // Nothing is removed without a terminal to choose in.
     assert!(dirty.exists());

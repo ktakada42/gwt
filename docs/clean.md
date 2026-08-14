@@ -6,11 +6,11 @@ would cost, and removes the ones you tick.
 ```
 Select worktrees to remove
 
-      WORKTREE         STATUS  NOTE
-> [x] feature/auth     done    merged into HEAD, nothing uncommitted
-  [ ] feature/billing  pushed  not merged; every commit is on its upstream
-  [ ] hotfix/login     local   2 commit(s) not on its upstream
-  [ ] wip/refactor     dirty   uncommitted changes would be lost
+      WORKTREE         SAFE TO REMOVE  NOTE
+> [x] feature/auth     yes             merged into HEAD, nothing uncommitted
+  [ ] feature/billing  yes (pushed)    not merged; every commit is on its upstream
+  [ ] hotfix/login     yes (local)     2 commit(s) not on its upstream
+  [ ] wip/refactor     no (dirty)      uncommitted changes would be lost
 
 1 of 4 selected
  up/down  move   space  toggle   enter  remove   esc  cancel
@@ -19,6 +19,17 @@ Select worktrees to remove
 ```
 gwx clean [--with-branch] [--force] [--no-hooks]
 ```
+
+## What the column says
+
+**Safe** means removing it destroys nothing. That is a narrower question than
+whether the work is finished, and the two answers differ: three of the four
+states are safe to remove, and only one of them is ticked for you. The state
+in brackets is what the verdict rests on, because "no" on its own does not say
+what to do about it.
+
+With `--with-branch` the question changes, and so does the answer: a `local`
+branch takes its commits with it, so it becomes `no (local)`.
 
 ## What the states mean
 
@@ -68,7 +79,8 @@ prints the table and removes nothing:
 
 ```console
 $ gwx clean | cat
-feature/auth     done    merged into HEAD, nothing uncommitted
-wip/refactor     dirty   uncommitted changes would be lost
+WORKTREE      SAFE TO REMOVE  NOTE
+feature/auth  yes             merged into HEAD, nothing uncommitted
+wip/refactor  no (dirty)      uncommitted changes would be lost
 gwx clean needs a terminal to choose in; nothing was removed.
 ```

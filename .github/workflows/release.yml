@@ -65,15 +65,39 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      # Before the artifacts, so they are not downloaded into a directory
+      # checkout is about to take over. Tags are needed for the notes below.
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
+
+      # The release notes are the tag annotation. Whoever cuts the release has
+      # already written down what is in it and why; generating a commit list
+      # instead throws that away and puts the subjects of merge commits in
+      # front of the people the release is for.
+      - name: Compose release notes
+        run: |
+          TAG="${{ github.ref_name }}"
+          git tag -l --format='%(contents:body)' "$TAG" > notes.md
+          # The tag this one descends from, rather than the highest version
+          # number around: a patch cut from an older branch compares against
+          # what it actually followed. Empty for the first release ever.
+          PREV=$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)
+          if [ -n "$PREV" ]; then
+            printf '\n**Full Changelog**: %s/compare/%s...%s\n' \
+              "${{ github.server_url }}/${{ github.repository }}" "$PREV" "$TAG" >> notes.md
+          fi
+          cat notes.md
 
       - name: Create release and upload assets
         run: |
           gh release create "${{ github.ref_name }}" \
             --repo "${{ github.repository }}" \
-            --generate-notes \
+            --notes-file notes.md \
             *.tar.gz
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

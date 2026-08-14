@@ -14,7 +14,7 @@ use crate::tui::{self, Outcome};
 pub fn run(args: ListArgs) -> Result<()> {
     let repo = Repo::discover()?;
 
-    if !args.paths && !args.plain && tui::should_pick(&repo)? {
+    if !wants_text(&args) && tui::should_pick(&repo)? {
         return match tui::pick(&repo)? {
             Outcome::Cancelled => Ok(()),
             Outcome::Selected(path) => cd_target::request_picked(&path),
@@ -68,6 +68,15 @@ pub fn run(args: ListArgs) -> Result<()> {
     Ok(())
 }
 
+/// Whether the flags asked for text rather than the picker.
+///
+/// `--no-header` belongs here for the same reason as the other two: it shapes
+/// a printed table, and the picker draws a header no flag of `list` controls.
+/// Left out, it would be accepted and then silently ignored.
+fn wants_text(args: &ListArgs) -> bool {
+    args.paths || args.plain || args.no_header
+}
+
 /// Column labels, the same words the picker uses.
 const NAME_HEADER: &str = "WORKTREE";
 const HEAD_HEADER: &str = "HEAD   ";
@@ -102,7 +111,35 @@ fn note(wt: &Worktree) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::{Cli, Command};
+    use clap::Parser;
     use std::path::PathBuf;
+
+    fn list_args(args: &[&str]) -> ListArgs {
+        match Cli::parse_from(args).command {
+            Command::List(args) => args,
+            other => panic!("expected list, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn asking_for_a_shaped_table_asks_for_the_table() {
+        // Each of these means "print text", so none of them may be accepted
+        // and then ignored in favour of the picker.
+        for flag in ["--plain", "--paths", "--no-header"] {
+            assert!(
+                wants_text(&list_args(&["gwx", "list", flag])),
+                "{flag} would have opened the picker"
+            );
+        }
+        assert!(!wants_text(&list_args(&["gwx", "list"])));
+    }
+
+    #[test]
+    fn no_header_cannot_be_combined_with_paths() {
+        // There are no columns to label in the path listing.
+        assert!(Cli::try_parse_from(["gwx", "list", "--paths", "--no-header"]).is_err());
+    }
 
     #[test]
     fn notes_describe_worktree_state() {

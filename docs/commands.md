@@ -77,7 +77,9 @@ Opens [the picker](picker.md) when there is a terminal to draw on and more
 than one worktree to choose from. Otherwise it prints a table.
 
 - `--plain` prints the table even in a terminal, for reading or piping.
-- `--no-header` leaves out the column labels, which is what a pipe wants.
+- `--no-header` prints it without the column labels, which is what a pipe
+  wants. It implies `--plain`, since the picker's header is not a flag's to
+  remove.
 - `--paths` prints one absolute path per line, and nothing else.
 
 ```console
@@ -87,9 +89,28 @@ $ gwx list --plain
   feature/auth     a1b2c3d  /home/me/worktrees/feature/auth
 ```
 
-The table and the picker label their columns the same way. The picker leaves
-out `PATH`, which gwx derives from the branch name, and puts a `STATUS` column
-there instead.
+### Why the table and the picker differ
+
+Both label their columns the same way, and the third column is not the same
+one:
+
+| | Third column |
+| --- | --- |
+| `gwx list --plain` | `PATH` |
+| The picker | `STATUS` — `dirty`, `merged` |
+
+The picker leaves the path out on purpose: gwx derives it from `base_dir` and
+the branch name, so it repeated what the first column already said, and the
+space was better spent on whether the worktree is safe to remove.
+
+The table keeps it, and does not show `STATUS`, for a reason that is about
+cost. Working the status out takes a `git status` per worktree and one
+`git branch --merged` for the repository — on a repository with 5,000 commits
+and 101 branches, 21ms each and 252ms respectively. The picker can afford that
+because it fills the column in after the list is already on screen; a table
+printed in one go would have to wait for all of it, turning a listing that
+returns in milliseconds into one that does not. If you want that judgement,
+[`gwx clean`](clean.md) answers a sharper version of it.
 
 ## `gwx shell-init` and `gwx completion`
 

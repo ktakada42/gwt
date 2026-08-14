@@ -112,7 +112,7 @@ pub struct ListArgs {
     #[arg(long, conflicts_with = "paths")]
     pub plain: bool,
 
-    /// Leave out the column headers, for feeding the table to something else
+    /// Print the table without column headers, for feeding it to something else
     #[arg(long, conflicts_with = "paths")]
     pub no_header: bool,
 }

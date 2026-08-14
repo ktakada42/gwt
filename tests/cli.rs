@@ -382,6 +382,34 @@ fn a_copy_hook_keeps_symlinks_and_survives_broken_ones() {
 }
 
 #[test]
+fn a_user_wide_base_dir_can_gather_every_repository_under_one_home() {
+    let fx = Fixture::new();
+    // The reason a user-wide base_dir exists: one line, every repository, and
+    // each one's worktrees kept apart from the next.
+    fx.write_global_config("[defaults]\nbase_dir = \"~/worktrees/{repo}\"\n");
+
+    // A HOME of our own, so the test cannot write into the real one.
+    let home = fx.root.join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let out = command(BIN)
+        .current_dir(&fx.repo)
+        .env("XDG_CONFIG_HOME", fx.root.join("config"))
+        .env("HOME", &home)
+        .args(["add", "feature/auth"])
+        .output()
+        .expect("failed to run gwx");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let path = PathBuf::from(String::from_utf8_lossy(&out.stdout).trim_end().to_string());
+    assert_eq!(path, home.join("worktrees/repo/feature/auth"));
+    assert!(path.join("README.md").exists());
+}
+
+#[test]
 fn a_user_wide_config_applies_to_a_repository_without_one() {
     let fx = Fixture::new();
     fx.write_global_config(

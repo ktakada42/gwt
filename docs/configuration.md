@@ -58,6 +58,27 @@ With `base_dir = "../worktrees"`, a repository at `/home/me/repo` puts the
 worktree for `feature/auth` at `/home/me/worktrees/feature/auth`. Slashes in
 branch names become directories. An absolute `base_dir` is used as-is.
 
+Two things are expanded before the path is used:
+
+| | |
+| --- | --- |
+| `~` | Your home directory, at the start of the path only (`~/worktrees`) |
+| `{repo}` | The directory name of the main worktree |
+
+Both exist for the user-wide config, where one line has to work in every
+repository:
+
+```toml
+# ~/.config/gwx/config.toml
+[defaults]
+base_dir = "~/worktrees/{repo}"
+```
+
+That puts this repository's `feature/auth` at `~/worktrees/gwx/feature/auth`,
+and the next repository's somewhere it cannot collide with. gwx never runs the
+value through a shell, so anything else in braces, and `~user` for somebody
+else's home, is an error rather than a directory with a surprising name.
+
 ## Two files
 
 `.gwx.toml` in the repository is a decision the project makes: everyone who
@@ -69,7 +90,8 @@ else sees.
 ```toml
 # ~/.config/gwx/config.toml
 [defaults]
-base_dir = ".worktrees"   # inside the repository, wherever you are
+base_dir = ".worktrees"        # inside the repository, wherever you are
+# or: "~/worktrees/{repo}"     # all of them together, one per repository
 ```
 
 The two combine per key rather than one replacing the other:

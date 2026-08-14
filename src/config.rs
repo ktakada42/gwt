@@ -211,19 +211,79 @@ impl Config {
     }
 
     /// Absolute base directory for new worktrees.
-    pub fn base_dir(&self, main_worktree: &Path) -> PathBuf {
-        let base = Path::new(
-            self.defaults
-                .base_dir
-                .as_deref()
-                .unwrap_or(DEFAULT_BASE_DIR),
-        );
-        if base.is_absolute() {
-            base.to_path_buf()
+    pub fn base_dir(&self, main_worktree: &Path) -> Result<PathBuf> {
+        let configured = self
+            .defaults
+            .base_dir
+            .as_deref()
+            .unwrap_or(DEFAULT_BASE_DIR);
+        let expanded = expand_base_dir(configured, main_worktree)
+            .with_context(|| format!("base_dir `{configured}`"))?;
+
+        let base = Path::new(&expanded);
+        Ok(if base.is_absolute() {
+            normalize(base)
         } else {
             normalize(&main_worktree.join(base))
-        }
+        })
     }
+}
+
+/// Resolves `~` and the placeholders a `base_dir` may contain.
+///
+/// gwx does not run the value through a shell, so `~` would otherwise become a
+/// directory named `~` inside the repository — which is exactly what a
+/// user-wide config invites, since collecting every repository's worktrees
+/// under one home directory is the reason to write one.
+fn expand_base_dir(configured: &str, main_worktree: &Path) -> Result<String> {
+    let (home, rest) = match configured.strip_prefix('~') {
+        // `~user` is somebody else's home, which needs the password database
+        // and answers a question nobody asked here.
+        Some(rest) if !rest.is_empty() && !rest.starts_with('/') => {
+            bail!("only `~` and `~/` are expanded, not `~{}`", rest);
+        }
+        Some(rest) => {
+            let home = std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .filter(|home| !home.is_empty())
+                .context("cannot expand `~`: neither HOME nor USERPROFILE is set")?;
+            (home.to_string_lossy().into_owned(), rest)
+        }
+        None => (String::new(), configured),
+    };
+
+    Ok(format!("{home}{}", substitute(rest, main_worktree)?))
+}
+
+/// Replaces `{repo}` and refuses anything else in braces.
+///
+/// One placeholder, because it is the one a user-wide config cannot do
+/// without: `~/worktrees/{repo}` keeps every repository's worktrees apart,
+/// where a plain relative path can only put them beside whatever repository
+/// you happen to be in.
+fn substitute(text: &str, main_worktree: &Path) -> Result<String> {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+
+    while let Some(open) = rest.find('{') {
+        out.push_str(&rest[..open]);
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('}') else {
+            bail!("unclosed `{{` in the path");
+        };
+        match &after[..close] {
+            "repo" => {
+                let name = main_worktree
+                    .file_name()
+                    .context("the main worktree has no directory name to use for `{repo}`")?;
+                out.push_str(&name.to_string_lossy());
+            }
+            other => bail!("unknown placeholder `{{{other}}}` (only `{{repo}}` is supported)"),
+        }
+        rest = &after[close + 1..];
+    }
+    out.push_str(rest);
+    Ok(out)
 }
 
 /// Resolves `.` and `..` lexically, without touching the filesystem.
@@ -255,6 +315,8 @@ version = "1"
 
 [defaults]
 # Where worktrees are created, relative to the main worktree.
+# `~` and `{repo}` are expanded: "~/worktrees/{repo}" is the shape that works
+# in every repository, which is what the user-wide config wants.
 base_dir = "../worktrees"
 
 # Hooks run before the worktree is created (command hooks only, run in the
@@ -305,7 +367,10 @@ mod tests {
         // Unset rather than defaulted, so a repository saying nothing can
         // inherit the user's choice.
         assert_eq!(cfg.defaults.base_dir, None);
-        assert_eq!(cfg.base_dir(Path::new("/repo")), Path::new("/worktrees"));
+        assert_eq!(
+            cfg.base_dir(Path::new("/repo")).unwrap(),
+            Path::new("/worktrees")
+        );
         assert!(cfg.hooks.pre_create.is_empty());
         assert!(cfg.hooks.post_create.is_empty());
     }
@@ -378,7 +443,7 @@ mod tests {
 
         let merged = Config::merge(user, repo);
         assert_eq!(
-            merged.base_dir(Path::new("/repo")),
+            merged.base_dir(Path::new("/repo")).unwrap(),
             PathBuf::from("/repo/.worktrees")
         );
     }
@@ -390,7 +455,7 @@ mod tests {
 
         let merged = Config::merge(user, repo);
         assert_eq!(
-            merged.base_dir(Path::new("/repo")),
+            merged.base_dir(Path::new("/repo")).unwrap(),
             PathBuf::from("/elsewhere")
         );
     }
@@ -433,6 +498,63 @@ mod tests {
     }
 
     #[test]
+    fn base_dir_expands_a_leading_tilde() {
+        let cfg = Config::parse("[defaults]\nbase_dir = \"~/worktrees\"").unwrap();
+        let expanded = cfg.base_dir(Path::new("/home/me/repo")).unwrap();
+
+        // Whatever HOME says, the one thing it must not be is a directory
+        // called `~` inside the repository.
+        assert!(expanded.is_absolute(), "{}", expanded.display());
+        assert!(expanded.ends_with("worktrees"), "{}", expanded.display());
+        assert!(
+            !expanded.to_string_lossy().contains('~'),
+            "{}",
+            expanded.display()
+        );
+    }
+
+    #[test]
+    fn base_dir_fills_in_the_repository_name() {
+        let cfg = Config::parse("[defaults]\nbase_dir = \"../wt/{repo}\"").unwrap();
+        assert_eq!(
+            cfg.base_dir(Path::new("/home/me/repo")).unwrap(),
+            PathBuf::from("/home/me/wt/repo")
+        );
+
+        let cfg = Config::parse("[defaults]\nbase_dir = \"/srv/{repo}/trees\"").unwrap();
+        assert_eq!(
+            cfg.base_dir(Path::new("/home/me/gwx")).unwrap(),
+            PathBuf::from("/srv/gwx/trees")
+        );
+    }
+
+    #[test]
+    fn base_dir_rejects_what_it_cannot_expand() {
+        let cases = [
+            ("~someone/worktrees", "not"),
+            ("../{branch}", "unknown placeholder"),
+            ("../{repo", "unclosed"),
+        ];
+        for (base_dir, expected) in cases {
+            let cfg = Config::parse(&format!("[defaults]\nbase_dir = \"{base_dir}\"")).unwrap();
+            let err = cfg
+                .base_dir(Path::new("/home/me/repo"))
+                .unwrap_err()
+                .to_string();
+            let chain = format!(
+                "{:#}",
+                cfg.base_dir(Path::new("/home/me/repo")).unwrap_err()
+            );
+            assert!(
+                chain.contains(expected),
+                "{base_dir}: {err} / chain: {chain}"
+            );
+            // The value is named, so the message says which setting to fix.
+            assert!(chain.contains(base_dir), "{base_dir}: {chain}");
+        }
+    }
+
+    #[test]
     fn a_command_summary_stays_on_one_line() {
         let summary = |command: &str| {
             Hook::Command {
@@ -465,13 +587,13 @@ mod tests {
     fn base_dir_is_resolved_against_the_main_worktree() {
         let cfg = Config::parse("").unwrap();
         assert_eq!(
-            cfg.base_dir(Path::new("/home/me/repo")),
+            cfg.base_dir(Path::new("/home/me/repo")).unwrap(),
             PathBuf::from("/home/me/worktrees")
         );
 
         let cfg = Config::parse("[defaults]\nbase_dir = \"/tmp/wt\"").unwrap();
         assert_eq!(
-            cfg.base_dir(Path::new("/home/me/repo")),
+            cfg.base_dir(Path::new("/home/me/repo")).unwrap(),
             PathBuf::from("/tmp/wt")
         );
     }

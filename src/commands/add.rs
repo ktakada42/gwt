@@ -30,7 +30,7 @@ pub fn run(args: AddArgs) -> Result<()> {
 
     let path = match &args.path {
         Some(p) => normalize(&repo.cwd.join(p)),
-        None => repo.worktree_path_for(&branch),
+        None => repo.worktree_path_for(&branch)?,
     };
 
     if let Some(existing) = repo

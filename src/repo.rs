@@ -29,13 +29,13 @@ impl Repo {
         git::list_worktrees(&self.cwd)
     }
 
-    pub fn base_dir(&self) -> PathBuf {
+    pub fn base_dir(&self) -> Result<PathBuf> {
         self.config.base_dir(&self.main)
     }
 
     /// Path a worktree for `branch` would get, following the configured layout.
-    pub fn worktree_path_for(&self, branch: &str) -> PathBuf {
-        self.base_dir().join(branch)
+    pub fn worktree_path_for(&self, branch: &str) -> Result<PathBuf> {
+        Ok(self.base_dir()?.join(branch))
     }
 
     /// Label shown in `gwx list`: path relative to the base dir when it lives
@@ -63,7 +63,7 @@ impl Repo {
             Some(name) => name.trim_end_matches('/'),
         };
 
-        let base = self.base_dir();
+        let base = self.base_dir()?;
         let mut by_branch = Vec::new();
         let mut by_relpath = Vec::new();
         let mut by_dirname = Vec::new();
@@ -155,7 +155,7 @@ detached
     #[test]
     fn worktree_path_follows_base_dir() {
         assert_eq!(
-            repo().worktree_path_for("feature/auth"),
+            repo().worktree_path_for("feature/auth").unwrap(),
             PathBuf::from("/home/me/worktrees/feature/auth")
         );
     }

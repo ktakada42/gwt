@@ -155,10 +155,6 @@ jobs:
             version "${VER}"
             license "MIT"
 
-            # gwx was called gwt up to v1.4.1. This migrates an installed gwt
-            # on \`brew upgrade\` rather than leaving it frozen at the old name.
-            oldnames "gwt"
-
             on_macos do
               if Hardware::CPU.arm?
                 url "https://github.com/ktakada42/gwx/releases/download/${VERSION}/gwx-${VERSION}-aarch64-apple-darwin.tar.gz"
@@ -209,9 +205,6 @@ jobs:
           cd homebrew-tap
           git config user.name  "${{ steps.tap-token.outputs.app-slug }}[bot]"
           git config user.email "${{ steps.tap-token.outputs.app-slug }}[bot]@users.noreply.github.com"
-          # The old formula would otherwise sit next to the new one, still
-          # offering v1.4.1 under a name that no longer exists.
-          git rm -q --ignore-unmatch Formula/gwt.rb
           git add Formula/gwx.rb
           git commit -m "gwx ${VER}"
           git push

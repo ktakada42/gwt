@@ -365,23 +365,6 @@ fn a_copy_hook_keeps_symlinks_and_survives_broken_ones() {
 }
 
 #[test]
-fn a_leftover_gwt_config_is_reported_rather_than_ignored() {
-    let fx = Fixture::new();
-    // What a repository configured for v1.4.1 and earlier looks like.
-    std::fs::write(
-        fx.repo.join(".gwt.toml"),
-        "[[hooks.post_create]]\ntype = \"command\"\ncommand = \"true\"\n",
-    )
-    .unwrap();
-
-    let out = fx.gwx(["add", "renamed"]);
-    assert!(!out.status.success());
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains(".gwt.toml"), "{stderr}");
-    assert!(stderr.contains(".gwx.toml"), "{stderr}");
-}
-
-#[test]
 fn no_hooks_skips_them() {
     let fx = Fixture::new();
     fx.write_config("[[hooks.post_create]]\ntype = \"command\"\ncommand = \"exit 7\"\n");

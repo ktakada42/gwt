@@ -97,26 +97,6 @@ cargo build --release
 Requires Rust 1.85+ to build and Git 2.17+ at runtime. Linux and macOS are
 supported; on Windows the `symlink` hook needs developer mode or elevation.
 
-### Upgrading from `gwt`
-
-This tool was called `gwt` up to v1.4.1. The old name was an abbreviation of
-the command it wraps, so it promised plain `git worktree` and delivered
-something else — and oh-my-zsh's `git` plugin defines `alias gwt='git worktree'`,
-which hid the tool outright for anyone using it. Only the names changed in
-v2.0.0; every command behaves as it did.
-
-| Was | Is |
-| --- | --- |
-| `gwt` | `gwx` |
-| `.gwt.toml` | `.gwx.toml` |
-| `GWT_BRANCH`, `GWT_WORKTREE_PATH`, … | `GWX_BRANCH`, `GWX_WORKTREE_PATH`, … |
-
-Homebrew migrates on `brew upgrade`. In each repository, rename `.gwt.toml` to
-`.gwx.toml` — gwx says so rather than ignoring the file if it finds the old
-name. Then swap the `eval` line in your shell rc file, and delete the
-`unalias gwt` line if you had one: with a name of its own, there is no alias
-left to fight.
-
 ### Shell integration
 
 A process cannot change the directory of the shell that started it, so `gwx cd`

@@ -8,13 +8,6 @@ use serde::Deserialize;
 
 pub const CONFIG_FILE: &str = ".gwx.toml";
 
-/// What the file was called when the command was called `gwt`, up to v1.4.1.
-///
-/// Reading it would be the friendlier thing to do, but a repository that keeps
-/// working under a name gwx does not use is a repository nobody renames. It is
-/// reported instead, once, with the new name to move it to.
-pub const LEGACY_CONFIG_FILE: &str = ".gwt.toml";
-
 /// Values accepted for the top-level `version` key.
 const SUPPORTED_VERSIONS: &[&str] = &["1", "1.0"];
 
@@ -124,18 +117,7 @@ impl Config {
             Ok(text) => {
                 Self::parse(&text).with_context(|| format!("failed to parse {}", path.display()))
             }
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let legacy = main_worktree.join(LEGACY_CONFIG_FILE);
-                if legacy.exists() {
-                    bail!(
-                        "found {} but this is gwx: rename it to {}\n\
-                         Hooks also read GWX_* rather than GWT_* now.",
-                        legacy.display(),
-                        CONFIG_FILE
-                    );
-                }
-                Ok(Self::default())
-            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(e).with_context(|| format!("failed to read {}", path.display())),
         }
     }

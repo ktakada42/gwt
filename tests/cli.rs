@@ -970,6 +970,48 @@ fn shell_init_emits_a_wrapper_and_completions() {
 }
 
 #[test]
+fn man_writes_a_page_for_gwx_and_one_per_subcommand() {
+    // Whoever packages gwx runs this and installs what it leaves behind, so
+    // the pages have to appear under the directory that was asked for — one
+    // that does not exist yet, since a packaging step builds into a clean tree.
+    let fx = Fixture::new();
+    let out_dir = fx.root.join("dist/man/man1");
+
+    let out = fx.gwx(["man", "--out-dir", out_dir.to_str().unwrap()]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Wrote man pages"));
+
+    let page = std::fs::read_to_string(out_dir.join("gwx.1")).unwrap();
+    assert!(page.contains("gwx"), "{page}");
+    // A page per subcommand is the point of writing them out at all: it is
+    // what makes `man gwx-add` work rather than only `gwx add --help`.
+    for command in ["add", "list", "cd", "remove", "clean", "init"] {
+        assert!(
+            out_dir.join(format!("gwx-{command}.1")).exists(),
+            "missing page for `{command}`"
+        );
+    }
+}
+
+#[test]
+fn man_says_which_directory_it_could_not_write_to() {
+    let fx = Fixture::new();
+    // A file where the directory should be: the failure has to name the path,
+    // since a packaging script's only clue is what gwx printed.
+    let blocked = fx.root.join("not-a-dir");
+    std::fs::write(&blocked, "").unwrap();
+
+    let out = fx.gwx(["man", "--out-dir", blocked.to_str().unwrap()]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("not-a-dir"), "{stderr}");
+}
+
+#[test]
 fn cd_completes_worktree_names() {
     let fx = Fixture::new();
     fx.gwx_ok(["add", "feature/one"]);

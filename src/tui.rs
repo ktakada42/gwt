@@ -39,6 +39,29 @@ fn open_tty() -> Result<File> {
         .context("no terminal available")
 }
 
+/// The shape of the screen a frame is being drawn for.
+///
+/// Passed in rather than asked for inside the drawing code: `terminal::size`
+/// answers for the process's own terminal, which a test has none of, and the
+/// layout is the part worth testing. The event loops own the terminal, so they
+/// are where the question gets asked — once per frame, which is also what keeps
+/// a resize taking effect on the next redraw.
+#[derive(Debug, Clone, Copy)]
+struct Size {
+    cols: usize,
+    rows: u16,
+}
+
+impl Size {
+    fn current() -> Result<Self> {
+        let (cols, rows) = terminal::size()?;
+        Ok(Self {
+            cols: cols as usize,
+            rows,
+        })
+    }
+}
+
 /// Whether a command should open the picker instead of printing.
 ///
 /// Without a terminal — a script, a pipeline, CI — the caller keeps its plain
@@ -226,7 +249,12 @@ pub fn pick(repo: &Repo) -> Result<Outcome> {
     let mut message: Option<String> = None;
 
     loop {
-        draw(&mut screen.tty, &mut picker, message.as_deref())?;
+        draw(
+            &mut screen.tty,
+            &mut picker,
+            message.as_deref(),
+            Size::current()?,
+        )?;
 
         let Some(key) = next_key(&mut picker, &mut status)? else {
             // Status arrived rather than a key; show it.
@@ -238,33 +266,62 @@ pub fn pick(repo: &Repo) -> Result<Outcome> {
         }
         message = None;
 
-        let action = key_action(&key);
-        if action != Action::Backspace {
-            picker.note_other_key();
-        }
-
-        match action {
-            Action::Cancel => return Ok(Outcome::Cancelled),
-            Action::Confirm => {
-                if let Some(item) = picker.selected() {
-                    return Ok(Outcome::Selected(item.path.clone()));
-                }
-            }
-            Action::Down => picker.move_down(),
-            Action::Up => picker.move_up(),
-            Action::Backspace => {
-                if picker.backspace() == Backspace::Delete {
-                    message = delete_selected(repo, &mut screen.tty, &mut picker)?;
-                    status = StatusFeed::spawn(repo, &picker.items);
-                }
-            }
-            Action::Insert(c) => picker.push_filter(c),
-            Action::Delete => {
+        match step(&mut picker, key_action(&key)) {
+            Step::Done(outcome) => return Ok(outcome),
+            Step::Stay => {}
+            Step::Delete => {
                 message = delete_selected(repo, &mut screen.tty, &mut picker)?;
                 status = StatusFeed::spawn(repo, &picker.items);
             }
-            Action::None => {}
         }
+    }
+}
+
+/// What the loop does after a key has been applied to the list.
+enum Step {
+    /// Redraw and wait for the next key.
+    Stay,
+    /// The picker is finished.
+    Done(Outcome),
+    /// Open the confirmation dialog for the selected row.
+    Delete,
+}
+
+/// Applies one key to the list, leaving anything that needs the terminal to
+/// the caller.
+///
+/// Splitting the decision from the I/O is what makes the keyboard testable:
+/// every branch here is reachable from a `KeyEvent` alone, with no terminal to
+/// draw on and no repository to delete from.
+fn step(picker: &mut Picker, action: Action) -> Step {
+    if action != Action::Backspace {
+        picker.note_other_key();
+    }
+    match action {
+        Action::Cancel => Step::Done(Outcome::Cancelled),
+        Action::Confirm => match picker.selected() {
+            Some(item) => Step::Done(Outcome::Selected(item.path.clone())),
+            // Nothing matches the filter, so there is nowhere to go.
+            None => Step::Stay,
+        },
+        Action::Down => {
+            picker.move_down();
+            Step::Stay
+        }
+        Action::Up => {
+            picker.move_up();
+            Step::Stay
+        }
+        Action::Backspace => match picker.backspace() {
+            Backspace::Delete => Step::Delete,
+            _ => Step::Stay,
+        },
+        Action::Insert(c) => {
+            picker.push_filter(c);
+            Step::Stay
+        }
+        Action::Delete => Step::Delete,
+        Action::None => Step::Stay,
     }
 }
 
@@ -295,31 +352,87 @@ fn next_key(picker: &mut Picker, status: &mut StatusFeed) -> Result<Option<KeyEv
 /// Opens the confirmation dialog and removes the worktree if confirmed.
 ///
 /// Returns the line to show in the status area.
-fn delete_selected(repo: &Repo, tty: &mut File, picker: &mut Picker) -> Result<Option<String>> {
-    let Some(item) = picker.selected() else {
-        return Ok(None);
+fn delete_selected(
+    repo: &Repo,
+    out: &mut impl Write,
+    picker: &mut Picker,
+) -> Result<Option<String>> {
+    let subject = match pending(repo, picker) {
+        None => return Ok(None),
+        Some(Pending::Blocked(line)) => return Ok(Some(line)),
+        Some(Pending::Ask(subject)) => subject,
     };
-    let worktree = item.worktree.clone();
-    let label = item.name.clone();
 
-    if let Some(reason) = removal_blocker(repo, &worktree, true) {
-        return Ok(Some(format!("cannot remove `{label}`: {reason}")));
-    }
-    let dirty = crate::git::is_dirty(&worktree.path).unwrap_or(false);
-    let merged = worktree
-        .branch
-        .as_deref()
-        .map(|b| crate::git::is_merged(&repo.main, b).unwrap_or(false))
-        .unwrap_or(false);
-
-    let Some(with_branch) = confirm(tty, &worktree, dirty, merged)? else {
+    let Some(with_branch) = confirm(out, &subject.worktree, subject.dirty, subject.merged)? else {
         return Ok(None);
     };
 
     // Removing can take a moment. Say so before starting, or the dialog just
     // sits there after the answer and invites a second, harder press.
-    working(tty, &format!("Removing {}...", worktree.path.display()))?;
+    working(
+        out,
+        &format!("Removing {}...", subject.worktree.path.display()),
+        Size::current()?,
+    )?;
 
+    let outcome = remove_picked(repo, picker, &subject, with_branch)?;
+
+    // Anything typed while git was working was meant for the dialog, not for
+    // the list that is about to replace it.
+    discard_pending_input()?;
+    Ok(Some(outcome))
+}
+
+/// The row Backspace landed on, and what removing it would cost.
+struct Subject {
+    worktree: Worktree,
+    label: String,
+    dirty: bool,
+    merged: bool,
+}
+
+/// Whether a deletion can be offered at all, and on what terms.
+enum Pending {
+    /// git will not remove this one; the dialog would only ask a question with
+    /// no good answer, so the reason goes to the status line instead.
+    Blocked(String),
+    Ask(Subject),
+}
+
+/// Works out what the dialog should say, without drawing it.
+fn pending(repo: &Repo, picker: &Picker) -> Option<Pending> {
+    let item = picker.selected()?;
+    let worktree = item.worktree.clone();
+    let label = item.name.clone();
+
+    if let Some(reason) = removal_blocker(repo, &worktree, true) {
+        return Some(Pending::Blocked(format!(
+            "cannot remove `{label}`: {reason}"
+        )));
+    }
+    let dirty = git::is_dirty(&worktree.path).unwrap_or(false);
+    let merged = worktree
+        .branch
+        .as_deref()
+        .map(|b| git::is_merged(&repo.main, b).unwrap_or(false))
+        .unwrap_or(false);
+
+    Some(Pending::Ask(Subject {
+        worktree,
+        label,
+        dirty,
+        merged,
+    }))
+}
+
+/// Removes a confirmed worktree and reloads the list. Returns the status line.
+fn remove_picked(
+    repo: &Repo,
+    picker: &mut Picker,
+    subject: &Subject,
+    with_branch: bool,
+) -> Result<String> {
+    let label = &subject.label;
     let opts = RemoveOptions {
         // The dialog already spelled out the risk, so honour the answer.
         force: true,
@@ -329,36 +442,30 @@ fn delete_selected(repo: &Repo, tty: &mut File, picker: &mut Picker) -> Result<O
         // containers or caches has to run whichever way it was asked for.
         no_hooks: false,
     };
-    let outcome = match remove_worktree(repo, &worktree, opts) {
+    match remove_worktree(repo, &subject.worktree, opts) {
         Ok(()) => {
             picker.items = load(repo)?;
             picker.clamp();
             let extra = if with_branch { " and its branch" } else { "" };
-            Some(format!("removed `{label}`{extra}"))
+            Ok(format!("removed `{label}`{extra}"))
         }
         // `{e:#}` rather than `{e}`: the top of the chain says only which hook
         // failed, and what it printed before giving up is further down. The
         // line is cut to the terminal width anyway.
-        Err(e) => Some(format!("failed to remove `{label}`: {e:#}")),
-    };
-
-    // Anything typed while git was working was meant for the dialog, not for
-    // the list that is about to replace it.
-    discard_pending_input()?;
-    Ok(outcome)
+        Err(e) => Ok(format!("failed to remove `{label}`: {e:#}")),
+    }
 }
 
 /// Clears the screen and states what is happening, for work that blocks.
-fn working(tty: &mut File, what: &str) -> Result<()> {
-    let (_, rows) = terminal::size()?;
+fn working(out: &mut impl Write, what: &str, size: Size) -> Result<()> {
     queue!(
-        tty,
+        out,
         terminal::Clear(terminal::ClearType::All),
         cursor::MoveTo(0, 0),
         style::Print(what),
-        cursor::MoveTo(0, rows.saturating_sub(1)),
+        cursor::MoveTo(0, size.rows.saturating_sub(1)),
     )?;
-    tty.flush()?;
+    out.flush()?;
     Ok(())
 }
 
@@ -370,61 +477,103 @@ fn discard_pending_input() -> Result<()> {
 }
 
 /// Asks for confirmation. `None` means cancelled, `Some(with_branch)` confirms.
-fn confirm(tty: &mut File, worktree: &Worktree, dirty: bool, merged: bool) -> Result<Option<bool>> {
-    let branch = worktree.branch.clone();
+fn confirm(
+    out: &mut impl Write,
+    worktree: &Worktree,
+    dirty: bool,
+    merged: bool,
+) -> Result<Option<bool>> {
     loop {
-        let (_, rows) = terminal::size()?;
-        queue!(
-            tty,
-            terminal::Clear(terminal::ClearType::All),
-            cursor::MoveTo(0, 0),
-            style::Print("Remove this worktree?"),
-            cursor::MoveTo(0, 2),
-            style::Print(format!("  {}", worktree.path.display())),
-        )?;
-
-        let mut row = 4;
-        if dirty {
-            queue!(
-                tty,
-                cursor::MoveTo(0, row),
-                style::Print("  ! uncommitted changes will be lost"),
-            )?;
-            row += 1;
-        }
-        if let Some(b) = &branch {
-            let state = if merged { "merged" } else { "NOT merged" };
-            queue!(
-                tty,
-                cursor::MoveTo(0, row),
-                style::Print(format!("  branch `{b}` ({state})")),
-            )?;
-        }
-
-        let keys = match &branch {
-            Some(_) => "[y] remove worktree   [b] remove worktree and branch   [n] cancel",
-            None => "[y] remove worktree   [n] cancel",
-        };
-        queue!(
-            tty,
-            cursor::MoveTo(0, rows.saturating_sub(1)),
-            style::Print(keys)
-        )?;
-        tty.flush()?;
+        draw_confirm(out, worktree, dirty, merged, Size::current()?)?;
 
         let Event::Key(key) = event::read()? else {
             continue;
         };
-        if key.kind != KeyEventKind::Press {
-            continue;
+        match reply(&key, worktree.branch.is_some()) {
+            Some(Reply::Remove { with_branch }) => return Ok(Some(with_branch)),
+            Some(Reply::Cancel) => return Ok(None),
+            // Anything else leaves the question on screen.
+            None => {}
         }
-        match key.code {
-            KeyCode::Char('y') | KeyCode::Char('Y') => return Ok(Some(false)),
-            KeyCode::Char('b') | KeyCode::Char('B') if branch.is_some() => return Ok(Some(true)),
-            KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => return Ok(None),
-            KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(None),
-            _ => {}
+    }
+}
+
+/// Draws the confirmation dialog.
+fn draw_confirm(
+    out: &mut impl Write,
+    worktree: &Worktree,
+    dirty: bool,
+    merged: bool,
+    size: Size,
+) -> Result<()> {
+    let branch = worktree.branch.as_deref();
+    queue!(
+        out,
+        terminal::Clear(terminal::ClearType::All),
+        cursor::MoveTo(0, 0),
+        style::Print("Remove this worktree?"),
+        cursor::MoveTo(0, 2),
+        style::Print(format!("  {}", worktree.path.display())),
+    )?;
+
+    let mut row = 4;
+    if dirty {
+        queue!(
+            out,
+            cursor::MoveTo(0, row),
+            style::Print("  ! uncommitted changes will be lost"),
+        )?;
+        row += 1;
+    }
+    if let Some(b) = branch {
+        let state = if merged { "merged" } else { "NOT merged" };
+        queue!(
+            out,
+            cursor::MoveTo(0, row),
+            style::Print(format!("  branch `{b}` ({state})")),
+        )?;
+    }
+
+    queue!(
+        out,
+        cursor::MoveTo(0, size.rows.saturating_sub(1)),
+        style::Print(confirm_keys(branch.is_some()))
+    )?;
+    out.flush()?;
+    Ok(())
+}
+
+/// The key line under the dialog. Without a branch there is nothing for `b` to
+/// remove, so offering it would be a key that does nothing.
+fn confirm_keys(has_branch: bool) -> &'static str {
+    if has_branch {
+        "[y] remove worktree   [b] remove worktree and branch   [n] cancel"
+    } else {
+        "[y] remove worktree   [n] cancel"
+    }
+}
+
+/// An answer to the confirmation dialog.
+#[derive(Debug, PartialEq, Eq)]
+enum Reply {
+    Remove { with_branch: bool },
+    Cancel,
+}
+
+/// Reads one key as an answer. `None` means the dialog is still waiting.
+fn reply(key: &KeyEvent, has_branch: bool) -> Option<Reply> {
+    // Windows reports both press and release; act on press only.
+    if key.kind != KeyEventKind::Press {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') => Some(Reply::Remove { with_branch: false }),
+        KeyCode::Char('b') | KeyCode::Char('B') if has_branch => {
+            Some(Reply::Remove { with_branch: true })
         }
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Some(Reply::Cancel),
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => Some(Reply::Cancel),
+        _ => None,
     }
 }
 
@@ -500,7 +649,7 @@ struct StatusFeed {
 
 /// Everything a worker needs to describe one worktree, owned so it can move
 /// to another thread.
-struct Subject {
+struct StatusJob {
     index: usize,
     path: PathBuf,
     branch: Option<String>,
@@ -512,10 +661,10 @@ impl StatusFeed {
     fn spawn(repo: &Repo, items: &[Item]) -> Self {
         let (tx, rx) = std::sync::mpsc::channel();
         let main = repo.main.clone();
-        let subjects: Vec<Subject> = items
+        let subjects: Vec<StatusJob> = items
             .iter()
             .enumerate()
-            .map(|(index, item)| Subject {
+            .map(|(index, item)| StatusJob {
                 index,
                 path: item.path.clone(),
                 branch: item.worktree.branch.clone(),
@@ -764,7 +913,7 @@ fn count_label(filter: &str, matched: usize, total: usize) -> String {
 /// The terminal's own cursor is hidden for the whole picker, so the block is
 /// drawn by hand as a space in reverse video. Without it, an empty filter line
 /// is a lone `>` that gives no sign it accepts input.
-fn draw_prompt(tty: &mut File, picker: &Picker, matched: usize, cols: usize) -> Result<()> {
+fn draw_prompt(out: &mut impl Write, picker: &Picker, matched: usize, cols: usize) -> Result<()> {
     let placeholder = if picker.filter.is_empty() {
         PLACEHOLDER
     } else {
@@ -773,16 +922,16 @@ fn draw_prompt(tty: &mut File, picker: &Picker, matched: usize, cols: usize) -> 
     let count = count_label(&picker.filter, matched, picker.items.len());
     let left = 2 + picker.filter.chars().count() + 1 + placeholder.chars().count();
 
-    queue!(tty, style::Print("> "), style::Print(&picker.filter))?;
+    queue!(out, style::Print("> "), style::Print(&picker.filter))?;
     queue!(
-        tty,
+        out,
         style::SetAttribute(style::Attribute::Reverse),
         style::Print(" "),
         style::SetAttribute(style::Attribute::Reset),
     )?;
     if !placeholder.is_empty() {
         queue!(
-            tty,
+            out,
             style::SetAttribute(style::Attribute::Dim),
             style::Print(placeholder),
             style::SetAttribute(style::Attribute::Reset),
@@ -793,7 +942,7 @@ fn draw_prompt(tty: &mut File, picker: &Picker, matched: usize, cols: usize) -> 
     let gap = cols.saturating_sub(left + count.chars().count());
     if gap > 0 {
         queue!(
-            tty,
+            out,
             style::Print(" ".repeat(gap)),
             style::SetAttribute(style::Attribute::Dim),
             style::Print(count),
@@ -803,9 +952,13 @@ fn draw_prompt(tty: &mut File, picker: &Picker, matched: usize, cols: usize) -> 
     Ok(())
 }
 
-fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()> {
-    let (cols, rows) = terminal::size()?;
-    let cols = cols as usize;
+fn draw(
+    out: &mut impl Write,
+    picker: &mut Picker,
+    message: Option<&str>,
+    size: Size,
+) -> Result<()> {
+    let Size { cols, rows } = size;
     // The prompt, the header, the help line, and any message.
     let reserved = if message.is_some() { 4 } else { 3 };
     let height = (rows as usize).saturating_sub(reserved);
@@ -836,7 +989,7 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
         cols,
     );
     queue!(
-        tty,
+        out,
         terminal::Clear(terminal::ClearType::All),
         cursor::MoveTo(0, 0),
         style::SetAttribute(style::Attribute::Bold),
@@ -856,55 +1009,55 @@ fn draw(tty: &mut File, picker: &mut Picker, message: Option<&str>) -> Result<()
             item.name, item.head, item.note
         );
         let line = fit(&line, cols);
-        queue!(tty, cursor::MoveTo(0, row as u16 + 1))?;
+        queue!(out, cursor::MoveTo(0, row as u16 + 1))?;
         if is_cursor {
             // Reverse video rather than a colour: it stays readable on any
             // theme, and highlights the row edge to edge.
             queue!(
-                tty,
+                out,
                 style::SetAttribute(style::Attribute::Reverse),
                 style::Print(line),
                 style::SetAttribute(style::Attribute::Reset),
             )?;
         } else {
-            queue!(tty, style::Print(line))?;
+            queue!(out, style::Print(line))?;
         }
     }
 
     if let Some(message) = message {
         queue!(
-            tty,
+            out,
             cursor::MoveTo(0, rows.saturating_sub(3)),
             style::Print(message.chars().take(cols).collect::<String>()),
         )?;
     }
-    queue!(tty, cursor::MoveTo(0, rows.saturating_sub(2)))?;
-    draw_prompt(tty, picker, matches.len(), cols)?;
+    queue!(out, cursor::MoveTo(0, rows.saturating_sub(2)))?;
+    draw_prompt(out, picker, matches.len(), cols)?;
 
-    queue!(tty, cursor::MoveTo(0, rows.saturating_sub(1)))?;
-    draw_hints(tty, &hints_that_fit(hints_for(picker), cols))?;
-    tty.flush()?;
+    queue!(out, cursor::MoveTo(0, rows.saturating_sub(1)))?;
+    draw_hints(out, &hints_that_fit(hints_for(picker), cols))?;
+    out.flush()?;
     Ok(())
 }
 
 /// Draws the help line, each key as a reverse-video badge.
-fn draw_hints(tty: &mut File, hints: &[&Hint]) -> Result<()> {
+fn draw_hints(out: &mut impl Write, hints: &[&Hint]) -> Result<()> {
     for (i, hint) in hints.iter().enumerate() {
         if i > 0 {
-            queue!(tty, style::Print("  "))?;
+            queue!(out, style::Print("  "))?;
         }
         for (k, key) in hint.keys.iter().enumerate() {
             if k > 0 {
-                queue!(tty, style::Print(" "))?;
+                queue!(out, style::Print(" "))?;
             }
             queue!(
-                tty,
+                out,
                 style::SetAttribute(style::Attribute::Reverse),
                 style::Print(format!(" {key} ")),
                 style::SetAttribute(style::Attribute::Reset),
             )?;
         }
-        queue!(tty, style::Print(format!(" {}", hint.label)))?;
+        queue!(out, style::Print(format!(" {}", hint.label)))?;
     }
     Ok(())
 }
@@ -921,22 +1074,24 @@ pub fn choose_to_clean(candidates: &[Candidate], with_branch: bool) -> Result<Op
     let mut screen = Screen::open()?;
     let mut ticked: Vec<bool> = candidates.iter().map(|c| c.state.preselected()).collect();
     let mut cursor_at = 0usize;
-    let last = candidates.len() - 1;
 
     loop {
-        draw_clean(&mut screen.tty, candidates, &ticked, cursor_at, with_branch)?;
+        draw_clean(
+            &mut screen.tty,
+            candidates,
+            &ticked,
+            cursor_at,
+            with_branch,
+            Size::current()?,
+        )?;
 
         let Event::Key(key) = event::read()? else {
             continue;
         };
-        if key.kind != KeyEventKind::Press {
-            continue;
-        }
-        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-        match key.code {
-            KeyCode::Esc => return Ok(None),
-            KeyCode::Char('c') | KeyCode::Char('g') if ctrl => return Ok(None),
-            KeyCode::Enter => {
+        match clean_step(&key, &mut ticked, &mut cursor_at) {
+            CleanStep::Stay => {}
+            CleanStep::Cancel => return Ok(None),
+            CleanStep::Accept => {
                 return Ok(Some(
                     ticked
                         .iter()
@@ -946,28 +1101,54 @@ pub fn choose_to_clean(candidates: &[Candidate], with_branch: bool) -> Result<Op
                         .collect(),
                 ))
             }
-            KeyCode::Down => cursor_at = if cursor_at == last { 0 } else { cursor_at + 1 },
-            KeyCode::Char('n') if ctrl => {
-                cursor_at = if cursor_at == last { 0 } else { cursor_at + 1 }
-            }
-            KeyCode::Up => cursor_at = cursor_at.checked_sub(1).unwrap_or(last),
-            KeyCode::Char('p') if ctrl => cursor_at = cursor_at.checked_sub(1).unwrap_or(last),
-            KeyCode::Char(' ') => ticked[cursor_at] = !ticked[cursor_at],
-            _ => {}
         }
     }
 }
 
+/// What the clean screen does after a key.
+#[derive(Debug, PartialEq, Eq)]
+enum CleanStep {
+    Stay,
+    Cancel,
+    Accept,
+}
+
+/// Moves the cursor and ticks boxes; the caller owns the screen and the answer.
+fn clean_step(key: &KeyEvent, ticked: &mut [bool], cursor_at: &mut usize) -> CleanStep {
+    // Windows reports both press and release; act on press only.
+    if key.kind != KeyEventKind::Press {
+        return CleanStep::Stay;
+    }
+    let last = ticked.len().saturating_sub(1);
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    // Both ends wrap, so a list you have scrolled past is one key away from the
+    // other end rather than a dead stop.
+    let down = |at: usize| if at == last { 0 } else { at + 1 };
+    let up = |at: usize| at.checked_sub(1).unwrap_or(last);
+    match key.code {
+        KeyCode::Esc => return CleanStep::Cancel,
+        KeyCode::Char('c') | KeyCode::Char('g') if ctrl => return CleanStep::Cancel,
+        KeyCode::Enter => return CleanStep::Accept,
+        KeyCode::Down => *cursor_at = down(*cursor_at),
+        KeyCode::Char('n') if ctrl => *cursor_at = down(*cursor_at),
+        KeyCode::Up => *cursor_at = up(*cursor_at),
+        KeyCode::Char('p') if ctrl => *cursor_at = up(*cursor_at),
+        KeyCode::Char(' ') => ticked[*cursor_at] = !ticked[*cursor_at],
+        _ => {}
+    }
+    CleanStep::Stay
+}
+
 /// One `gwx clean` frame: header, rows, and the help line.
 fn draw_clean(
-    tty: &mut File,
+    out: &mut impl Write,
     candidates: &[Candidate],
     ticked: &[bool],
     cursor_at: usize,
     with_branch: bool,
+    size: Size,
 ) -> Result<()> {
-    let (cols, rows) = terminal::size()?;
-    let cols = cols as usize;
+    let Size { cols, rows } = size;
     let verdicts: Vec<String> = candidates
         .iter()
         .map(|c| c.state.verdict(with_branch))
@@ -989,7 +1170,7 @@ fn draw_clean(
         "      {CLEAN_NAME_HEADER:<width$}  {VERDICT_HEADER:<verdict_width$}  {NOTE_HEADER}"
     );
     queue!(
-        tty,
+        out,
         terminal::Clear(terminal::ClearType::All),
         cursor::MoveTo(0, 0),
         style::Print("Select worktrees to remove"),
@@ -1013,22 +1194,22 @@ fn draw_clean(
             verdicts[i],
             candidate.note,
         );
-        queue!(tty, cursor::MoveTo(0, row))?;
+        queue!(out, cursor::MoveTo(0, row))?;
         if i == cursor_at {
             queue!(
-                tty,
+                out,
                 style::SetAttribute(style::Attribute::Reverse),
                 style::Print(fit(&format!("{line:<cols$}"), cols)),
                 style::SetAttribute(style::Attribute::Reset),
             )?;
         } else {
-            queue!(tty, style::Print(fit(&line, cols)))?;
+            queue!(out, style::Print(fit(&line, cols)))?;
         }
     }
 
     let count = ticked.iter().filter(|on| **on).count();
     queue!(
-        tty,
+        out,
         cursor::MoveTo(0, rows.saturating_sub(2)),
         style::SetAttribute(style::Attribute::Dim),
         style::Print(fit(
@@ -1038,8 +1219,8 @@ fn draw_clean(
         style::SetAttribute(style::Attribute::Reset),
         cursor::MoveTo(0, rows.saturating_sub(1)),
     )?;
-    draw_hints(tty, &hints_that_fit(CLEAN_HINTS, cols))?;
-    tty.flush()?;
+    draw_hints(out, &hints_that_fit(CLEAN_HINTS, cols))?;
+    out.flush()?;
     Ok(())
 }
 
@@ -1075,7 +1256,102 @@ const CLEAN_HINTS: &[Hint] = &[
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+    use std::path::Path;
+
     use super::*;
+    use crate::commands::clean::State;
+    use crate::config::Config;
+
+    /// What a terminal would have shown for one frame.
+    ///
+    /// The drawing code writes escape sequences to move the cursor and switch
+    /// attributes, so a frame captured in a buffer is one run-on line until
+    /// those are replayed. This replays the three that carry the layout —
+    /// clear, cursor move, reverse video — which is enough to assert on what a
+    /// person would have seen, and nothing about how it was encoded.
+    #[derive(Debug, Default)]
+    struct Frame {
+        rows: BTreeMap<u16, String>,
+        /// Every run drawn in reverse video: the cursor row and the key badges.
+        highlighted: Vec<String>,
+    }
+
+    impl Frame {
+        fn parse(bytes: &[u8]) -> Self {
+            let text = String::from_utf8(bytes.to_vec()).unwrap();
+            let mut frame = Frame::default();
+            let mut row = 0u16;
+            let mut reversed = false;
+            let mut chars = text.chars().peekable();
+
+            while let Some(c) = chars.next() {
+                if c != '\u{1b}' {
+                    frame.rows.entry(row).or_default().push(c);
+                    if reversed {
+                        frame.highlighted.last_mut().unwrap().push(c);
+                    }
+                    continue;
+                }
+                if chars.peek() != Some(&'[') {
+                    continue;
+                }
+                chars.next();
+                let mut params = String::new();
+                let mut end = ' ';
+                for c in chars.by_ref() {
+                    if c.is_ascii_digit() || c == ';' || c == '?' {
+                        params.push(c);
+                    } else {
+                        end = c;
+                        break;
+                    }
+                }
+                match end {
+                    // Rows are 1-based on the wire; everything is drawn at
+                    // column 0, so the column is not worth tracking.
+                    'H' => {
+                        let line = params.split(';').next().unwrap_or("1");
+                        row = line.parse::<u16>().unwrap_or(1).saturating_sub(1);
+                    }
+                    'J' => frame.rows.clear(),
+                    'm' => match params.as_str() {
+                        "7" => {
+                            reversed = true;
+                            frame.highlighted.push(String::new());
+                        }
+                        "0" => reversed = false,
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+            frame
+        }
+
+        fn row(&self, n: u16) -> &str {
+            self.rows.get(&n).map(String::as_str).unwrap_or("")
+        }
+
+        /// Every row, so a test can ask whether something is on screen at all.
+        fn text(&self) -> String {
+            self.rows.values().cloned().collect::<Vec<_>>().join("\n")
+        }
+    }
+
+    fn frame_of(f: impl FnOnce(&mut Vec<u8>) -> Result<()>) -> Frame {
+        let mut buf = Vec::new();
+        f(&mut buf).unwrap();
+        Frame::parse(&buf)
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    fn ctrl(c: char) -> KeyEvent {
+        KeyEvent::new(KeyCode::Char(c), KeyModifiers::CONTROL)
+    }
 
     fn item(name: &str, path: &str) -> Item {
         Item {
@@ -1315,6 +1591,16 @@ mod tests {
     }
 
     #[test]
+    fn a_terminal_with_no_room_for_the_list_does_not_scroll_it() {
+        // Three rows of chrome on a three-row terminal leaves a window of
+        // nothing; scrolling into it would put the offset past the last item.
+        let mut p = picker();
+        p.cursor = 3;
+        p.scroll_into_view(0);
+        assert_eq!(p.offset, 0);
+    }
+
+    #[test]
     fn delete_is_bound_to_both_delete_and_ctrl_d() {
         let del = KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE);
         let ctrl_d = KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL);
@@ -1332,5 +1618,764 @@ mod tests {
         // Ctrl-n/p navigate instead of typing.
         let ctrl_n = KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL);
         assert!(matches!(key_action(&ctrl_n), Action::Down));
+    }
+
+    #[test]
+    fn every_way_out_of_the_picker_is_bound() {
+        assert_eq!(key_action(&key(KeyCode::Enter)), Action::Confirm);
+        assert_eq!(key_action(&key(KeyCode::Esc)), Action::Cancel);
+        assert_eq!(key_action(&ctrl('c')), Action::Cancel);
+        assert_eq!(key_action(&ctrl('g')), Action::Cancel);
+        assert_eq!(key_action(&key(KeyCode::Up)), Action::Up);
+        assert_eq!(key_action(&key(KeyCode::Down)), Action::Down);
+        assert_eq!(key_action(&ctrl('p')), Action::Up);
+        // A terminal told to send 0x08 for the erase key surfaces it as Ctrl-H,
+        // which has to reach the filter rather than doing nothing.
+        assert_eq!(key_action(&ctrl('h')), Action::Backspace);
+        // Anything unbound is inert rather than typed into the filter.
+        assert_eq!(key_action(&key(KeyCode::F(1))), Action::None);
+        assert_eq!(key_action(&ctrl('z')), Action::None);
+    }
+
+    // --- what a key does to the list ------------------------------------
+
+    #[test]
+    fn enter_hands_back_the_selected_path() {
+        let mut p = picker();
+        p.cursor = 1;
+        match step(&mut p, Action::Confirm) {
+            Step::Done(Outcome::Selected(path)) => {
+                assert_eq!(path, PathBuf::from("/wt/feature/auth"))
+            }
+            _ => panic!("Enter should have chosen the row under the cursor"),
+        }
+    }
+
+    #[test]
+    fn enter_on_nothing_leaves_the_picker_open() {
+        // Filtering everything away must not be a way to exit with no answer.
+        let mut p = picker();
+        p.filter = "zzz".to_string();
+        p.clamp();
+        assert!(matches!(step(&mut p, Action::Confirm), Step::Stay));
+    }
+
+    #[test]
+    fn escape_ends_the_picker_without_moving() {
+        let mut p = picker();
+        assert!(matches!(
+            step(&mut p, Action::Cancel),
+            Step::Done(Outcome::Cancelled)
+        ));
+    }
+
+    #[test]
+    fn typing_and_moving_only_change_the_list() {
+        let mut p = picker();
+        assert!(matches!(step(&mut p, Action::Insert('f')), Step::Stay));
+        assert_eq!(p.filter, "f");
+        assert!(matches!(step(&mut p, Action::Down), Step::Stay));
+        assert_eq!(p.selected().unwrap().name, "feature/billing");
+        assert!(matches!(step(&mut p, Action::Up), Step::Stay));
+        assert_eq!(p.selected().unwrap().name, "feature/auth");
+        assert!(matches!(step(&mut p, Action::None), Step::Stay));
+    }
+
+    #[test]
+    fn only_a_deliberate_backspace_reaches_the_dialog() {
+        let mut p = picker();
+        // While there is a filter, Backspace edits it.
+        assert!(matches!(step(&mut p, Action::Insert('a')), Step::Stay));
+        assert!(matches!(step(&mut p, Action::Backspace), Step::Stay));
+        // The press that overshoots the empty filter is swallowed.
+        assert!(matches!(step(&mut p, Action::Backspace), Step::Stay));
+        // The one after it is meant.
+        assert!(matches!(step(&mut p, Action::Backspace), Step::Delete));
+        // Ctrl-D never has to wait for that, since it has only one job.
+        assert!(matches!(step(&mut p, Action::Delete), Step::Delete));
+    }
+
+    #[test]
+    fn moving_the_cursor_ends_the_erasing_streak() {
+        // `step` is where the streak is cleared, so the swallowed press cannot
+        // survive a key that was clearly not part of the burst.
+        let mut p = picker();
+        step(&mut p, Action::Insert('a'));
+        step(&mut p, Action::Backspace);
+        step(&mut p, Action::Down);
+        assert!(matches!(step(&mut p, Action::Backspace), Step::Delete));
+    }
+
+    // --- the frame the picker draws -------------------------------------
+
+    const WIDE: Size = Size { cols: 80, rows: 24 };
+
+    #[test]
+    fn the_frame_puts_the_header_over_the_rows_it_labels() {
+        let mut p = picker();
+        p.items[0].is_current = true;
+        p.items[1].note = "dirty, merged".to_string();
+        let frame = frame_of(|out| draw(out, &mut p, None, WIDE));
+
+        assert!(frame.row(0).starts_with("  WORKTREE"), "{:?}", frame.row(0));
+        assert!(frame.row(0).contains("HEAD"));
+        assert!(frame.row(0).contains("STATUS"));
+        // The four rows follow it, in order, one per line.
+        assert!(frame.row(1).starts_with("* @"), "{:?}", frame.row(1));
+        assert!(frame.row(2).contains("feature/auth"));
+        assert!(frame.row(2).contains("dirty, merged"));
+        assert!(frame.row(3).contains("feature/billing"));
+        assert!(frame.row(4).contains("hotfix"));
+        // The marker column says where you are standing; only one row can.
+        assert!(!frame.row(2).starts_with('*'), "{:?}", frame.row(2));
+    }
+
+    #[test]
+    fn the_cursor_row_is_highlighted_edge_to_edge() {
+        let mut p = picker();
+        p.cursor = 2;
+        let frame = frame_of(|out| draw(out, &mut p, None, WIDE));
+
+        let row = frame
+            .highlighted
+            .iter()
+            .find(|h| h.contains("feature/billing"))
+            .expect("the row under the cursor is drawn in reverse video");
+        // Padded to the full width, so the highlight is a bar and not a
+        // ragged patch the length of the branch name.
+        assert_eq!(row.chars().count(), WIDE.cols);
+    }
+
+    #[test]
+    fn a_narrow_terminal_cuts_the_rows_rather_than_wrapping_them() {
+        // Wrapping would push the prompt and the help line off the bottom.
+        let mut p = picker();
+        let size = Size { cols: 24, rows: 24 };
+        let frame = frame_of(|out| draw(out, &mut p, None, size));
+
+        for row in 0..=4 {
+            assert_eq!(
+                frame.row(row).chars().count(),
+                size.cols,
+                "row {row}: {:?}",
+                frame.row(row)
+            );
+        }
+    }
+
+    #[test]
+    fn a_message_sits_above_the_prompt_and_is_cut_to_the_width() {
+        let mut p = picker();
+        let long = "failed to remove `feature/auth`: ".to_string() + &"x".repeat(200);
+        let frame = frame_of(|out| draw(out, &mut p, Some(&long), WIDE));
+
+        // Rows 21, 22, 23 of a 24-row terminal: message, prompt, hints.
+        assert!(frame.row(21).starts_with("failed to remove"));
+        assert_eq!(frame.row(21).chars().count(), WIDE.cols);
+        assert!(frame.row(22).starts_with("> "));
+        assert!(frame.row(23).contains("cancel"));
+    }
+
+    #[test]
+    fn the_list_shrinks_to_leave_room_for_a_message() {
+        // Four rows of terminal: header, one row, prompt, hints — and with a
+        // message, the list gives up its last row rather than the help line.
+        let mut p = picker();
+        let size = Size { cols: 80, rows: 5 };
+        let frame = frame_of(|out| draw(out, &mut p, None, size));
+        assert!(frame.row(2).contains("feature/auth"));
+
+        let frame = frame_of(|out| draw(out, &mut p, Some("removed `hotfix`"), size));
+        assert!(!frame.row(2).contains("feature/auth"), "{:?}", frame.row(2));
+        assert!(frame.row(2).starts_with("removed `hotfix`"));
+    }
+
+    #[test]
+    fn the_view_scrolls_to_keep_the_cursor_on_screen() {
+        let mut p = picker();
+        p.cursor = 3;
+        // Two rows of list, so the first two items have to scroll away.
+        let size = Size { cols: 80, rows: 5 };
+        let frame = frame_of(|out| draw(out, &mut p, None, size));
+
+        assert!(
+            frame.row(1).contains("feature/billing"),
+            "{:?}",
+            frame.row(1)
+        );
+        assert!(frame.row(2).contains("hotfix"), "{:?}", frame.row(2));
+        assert!(!frame.text().contains(" @ "), "{}", frame.text());
+    }
+
+    #[test]
+    fn the_prompt_offers_the_placeholder_and_the_size_of_the_list() {
+        let p = picker();
+        let frame = frame_of(|out| draw_prompt(out, &p, 4, 80));
+        let line = frame.row(0);
+        assert!(line.starts_with("> "), "{line:?}");
+        assert!(line.contains(PLACEHOLDER), "{line:?}");
+        // The count is right-aligned against the width it was given.
+        assert!(line.ends_with("4 worktrees"), "{line:?}");
+        assert_eq!(line.chars().count(), 80);
+    }
+
+    #[test]
+    fn typing_replaces_the_placeholder_with_what_survived() {
+        let mut p = picker();
+        p.push_filter('f');
+        let frame = frame_of(|out| draw_prompt(out, &p, 2, 80));
+        let line = frame.row(0);
+        assert!(line.starts_with("> f"), "{line:?}");
+        assert!(!line.contains(PLACEHOLDER), "{line:?}");
+        assert!(line.ends_with("2 of 4"), "{line:?}");
+    }
+
+    #[test]
+    fn the_count_is_dropped_rather_than_wrapped_onto_the_next_line() {
+        let p = picker();
+        let frame = frame_of(|out| draw_prompt(out, &p, 4, 10));
+        assert!(!frame.row(0).contains("worktrees"), "{:?}", frame.row(0));
+    }
+
+    #[test]
+    fn the_filter_line_always_shows_a_block_cursor() {
+        // The terminal's own cursor is hidden for the whole picker, so without
+        // this the empty filter line is a lone `>` with no sign it takes input.
+        let p = picker();
+        let frame = frame_of(|out| draw_prompt(out, &p, 4, 80));
+        assert!(frame.highlighted.contains(&" ".to_string()));
+    }
+
+    #[test]
+    fn each_key_in_the_help_line_gets_its_own_badge() {
+        let hints: Vec<&Hint> = HINTS_IDLE.iter().collect();
+        let frame = frame_of(|out| draw_hints(out, &hints));
+
+        assert_eq!(frame.row(0).trim_start(), frame.row(0).trim_start());
+        assert!(frame.row(0).contains(" enter  cd"), "{:?}", frame.row(0));
+        // Two keys for one label, each in a badge of its own.
+        assert!(frame.highlighted.contains(&" ctrl-d ".to_string()));
+        assert!(frame.highlighted.contains(&" backspace ".to_string()));
+    }
+
+    // --- the confirmation dialog ----------------------------------------
+
+    fn worktree(path: &str, branch: Option<&str>) -> Worktree {
+        Worktree {
+            path: PathBuf::from(path),
+            head: Some("abc1234".to_string()),
+            branch: branch.map(str::to_string),
+            bare: false,
+            detached: branch.is_none(),
+            locked: false,
+        }
+    }
+
+    #[test]
+    fn the_dialog_names_the_worktree_and_the_state_of_its_branch() {
+        let wt = worktree("/wt/feature/auth", Some("feature/auth"));
+        let frame = frame_of(|out| draw_confirm(out, &wt, false, true, WIDE));
+
+        assert_eq!(frame.row(0), "Remove this worktree?");
+        assert_eq!(frame.row(2), "  /wt/feature/auth");
+        assert_eq!(frame.row(4), "  branch `feature/auth` (merged)");
+        assert!(frame.row(23).contains("[b] remove worktree and branch"));
+    }
+
+    #[test]
+    fn an_unmerged_branch_says_so_in_capitals() {
+        // The word is the whole warning, so it has to survive being skimmed.
+        let wt = worktree("/wt/hotfix", Some("hotfix"));
+        let frame = frame_of(|out| draw_confirm(out, &wt, false, false, WIDE));
+        assert_eq!(frame.row(4), "  branch `hotfix` (NOT merged)");
+    }
+
+    #[test]
+    fn uncommitted_work_is_warned_about_above_the_branch() {
+        let wt = worktree("/wt/hotfix", Some("hotfix"));
+        let frame = frame_of(|out| draw_confirm(out, &wt, true, false, WIDE));
+
+        assert_eq!(frame.row(4), "  ! uncommitted changes will be lost");
+        // The branch line moves down rather than being written over.
+        assert_eq!(frame.row(5), "  branch `hotfix` (NOT merged)");
+    }
+
+    #[test]
+    fn a_detached_worktree_is_not_offered_a_branch_to_delete() {
+        let wt = worktree("/wt/detached", None);
+        let frame = frame_of(|out| draw_confirm(out, &wt, false, false, WIDE));
+
+        assert!(!frame.text().contains("branch"), "{}", frame.text());
+        assert_eq!(frame.row(23), "[y] remove worktree   [n] cancel");
+    }
+
+    #[test]
+    fn the_dialog_takes_yes_in_either_case() {
+        for c in ['y', 'Y'] {
+            assert_eq!(
+                reply(&key(KeyCode::Char(c)), true),
+                Some(Reply::Remove { with_branch: false })
+            );
+        }
+        for c in ['b', 'B'] {
+            assert_eq!(
+                reply(&key(KeyCode::Char(c)), true),
+                Some(Reply::Remove { with_branch: true })
+            );
+        }
+    }
+
+    #[test]
+    fn without_a_branch_the_branch_key_does_nothing() {
+        // The key line does not offer `b`, so pressing it is a typo, and a typo
+        // must not be read as a bigger yes than the one on offer.
+        assert_eq!(reply(&key(KeyCode::Char('b')), false), None);
+        assert_eq!(
+            reply(&key(KeyCode::Char('y')), false),
+            Some(Reply::Remove { with_branch: false })
+        );
+    }
+
+    #[test]
+    fn every_way_of_backing_out_of_the_dialog_cancels() {
+        for k in [
+            key(KeyCode::Char('n')),
+            key(KeyCode::Char('N')),
+            key(KeyCode::Esc),
+            ctrl('c'),
+        ] {
+            assert_eq!(reply(&k, true), Some(Reply::Cancel), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn an_unrelated_key_leaves_the_question_on_screen() {
+        assert_eq!(reply(&key(KeyCode::Char('q')), true), None);
+        assert_eq!(reply(&key(KeyCode::Enter), true), None);
+
+        // Windows reports a release for every press; answering on both would
+        // count one keystroke twice.
+        let mut release = key(KeyCode::Char('y'));
+        release.kind = KeyEventKind::Release;
+        assert_eq!(reply(&release, true), None);
+    }
+
+    #[test]
+    fn the_working_line_says_what_is_taking_so_long() {
+        let frame = frame_of(|out| working(out, "Removing /wt/hotfix...", WIDE));
+        assert_eq!(frame.row(0), "Removing /wt/hotfix...");
+    }
+
+    // --- the clean screen -----------------------------------------------
+
+    fn candidate(name: &str, state: State, note: &str) -> Candidate {
+        Candidate {
+            worktree: worktree(&format!("/wt/{name}"), Some(name)),
+            name: name.to_string(),
+            state,
+            note: note.to_string(),
+        }
+    }
+
+    fn candidates() -> Vec<Candidate> {
+        vec![
+            candidate("feature/auth", State::Done, "merged into main"),
+            candidate("feature/billing", State::Local, "3 commits nowhere else"),
+            candidate("hotfix", State::Dirty, "uncommitted changes"),
+        ]
+    }
+
+    #[test]
+    fn the_clean_screen_shows_a_verdict_and_a_box_per_row() {
+        let list = candidates();
+        let ticked = [true, false, false];
+        let frame = frame_of(|out| draw_clean(out, &list, &ticked, 0, false, WIDE));
+
+        assert_eq!(frame.row(0).trim_end(), "Select worktrees to remove");
+        assert!(frame.row(2).contains("WORKTREE"), "{:?}", frame.row(2));
+        assert!(frame.row(2).contains("SAFE TO REMOVE"));
+        assert!(
+            frame.row(3).contains("[x] feature/auth"),
+            "{:?}",
+            frame.row(3)
+        );
+        assert!(frame.row(4).contains("[ ] feature/billing"));
+        assert!(frame.row(4).contains("yes (local)"));
+        assert!(frame.row(5).contains("no (dirty)"), "{:?}", frame.row(5));
+        assert!(frame.row(5).contains("uncommitted changes"));
+        // The tally is what tells you Enter is about to remove one thing.
+        assert!(frame.row(22).starts_with("1 of 3 selected"));
+        assert!(frame.row(23).contains("toggle"));
+    }
+
+    #[test]
+    fn with_branch_turns_a_local_branch_into_a_no() {
+        // Removing the branch takes its commits with it, which nothing else
+        // on the screen would have warned about.
+        let list = candidates();
+        let ticked = [false, false, false];
+        let frame = frame_of(|out| draw_clean(out, &list, &ticked, 0, true, WIDE));
+        assert!(frame.row(4).contains("no (local)"), "{:?}", frame.row(4));
+    }
+
+    #[test]
+    fn the_clean_cursor_row_is_marked_and_highlighted() {
+        let list = candidates();
+        let ticked = [false, false, false];
+        let frame = frame_of(|out| draw_clean(out, &list, &ticked, 1, false, WIDE));
+
+        assert!(frame.row(4).starts_with("> "), "{:?}", frame.row(4));
+        assert!(frame.row(3).starts_with("  "), "{:?}", frame.row(3));
+        let row = frame
+            .highlighted
+            .iter()
+            .find(|h| h.contains("feature/billing"))
+            .expect("the row under the cursor is drawn in reverse video");
+        assert_eq!(row.chars().count(), WIDE.cols);
+    }
+
+    #[test]
+    fn a_short_terminal_stops_before_the_tally_it_would_overwrite() {
+        let list = candidates();
+        let ticked = [false, false, false];
+        let size = Size { cols: 80, rows: 6 };
+        let frame = frame_of(|out| draw_clean(out, &list, &ticked, 0, false, size));
+
+        assert!(frame.row(3).contains("feature/auth"));
+        // Row 4 is the last one that fits; the tally owns row 4 of a 6-row
+        // terminal, so the third candidate is dropped rather than drawn over it.
+        assert!(!frame.text().contains("hotfix"), "{}", frame.text());
+        assert!(frame.row(4).starts_with("0 of 3 selected"));
+    }
+
+    #[test]
+    fn space_ticks_the_row_under_the_cursor() {
+        let mut ticked = vec![false, false, false];
+        let mut at = 1;
+        assert_eq!(
+            clean_step(&key(KeyCode::Char(' ')), &mut ticked, &mut at),
+            CleanStep::Stay
+        );
+        assert_eq!(ticked, [false, true, false]);
+        // And unticks it, so a mis-selection costs one keystroke.
+        clean_step(&key(KeyCode::Char(' ')), &mut ticked, &mut at);
+        assert_eq!(ticked, [false, false, false]);
+    }
+
+    #[test]
+    fn the_clean_cursor_wraps_at_both_ends() {
+        let mut ticked = vec![false, false, false];
+        let mut at = 0;
+        clean_step(&key(KeyCode::Up), &mut ticked, &mut at);
+        assert_eq!(at, 2);
+        clean_step(&key(KeyCode::Down), &mut ticked, &mut at);
+        assert_eq!(at, 0);
+        clean_step(&ctrl('n'), &mut ticked, &mut at);
+        assert_eq!(at, 1);
+        clean_step(&ctrl('p'), &mut ticked, &mut at);
+        assert_eq!(at, 0);
+    }
+
+    #[test]
+    fn enter_accepts_the_selection_and_escape_throws_it_away() {
+        let mut ticked = vec![true, false, true];
+        let mut at = 0;
+        assert_eq!(
+            clean_step(&key(KeyCode::Enter), &mut ticked, &mut at),
+            CleanStep::Accept
+        );
+        for k in [key(KeyCode::Esc), ctrl('c'), ctrl('g')] {
+            assert_eq!(
+                clean_step(&k, &mut ticked, &mut at),
+                CleanStep::Cancel,
+                "{k:?}"
+            );
+        }
+        // An unbound key changes nothing at all.
+        assert_eq!(
+            clean_step(&key(KeyCode::Char('x')), &mut ticked, &mut at),
+            CleanStep::Stay
+        );
+        assert_eq!(ticked, [true, false, true]);
+        assert_eq!(at, 0);
+
+        let mut release = key(KeyCode::Enter);
+        release.kind = KeyEventKind::Release;
+        assert_eq!(
+            clean_step(&release, &mut ticked, &mut at),
+            CleanStep::Stay,
+            "a release must not confirm what the press already did"
+        );
+    }
+
+    // --- against a real repository ---------------------------------------
+
+    /// Runs git in `dir`, deaf to whatever repository the test runner is in.
+    ///
+    /// `cargo test` from `.githooks/pre-commit` already has `GIT_DIR` exported,
+    /// and git reads it before the working directory — so without this the
+    /// fixtures would reconfigure the real checkout.
+    fn git_in(dir: &Path, args: &[&str]) {
+        let mut cmd = std::process::Command::new("git");
+        cmd.current_dir(dir);
+        for var in git::REPO_ENV {
+            cmd.env_remove(var);
+        }
+        for var in ["GIT_CONFIG", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM"] {
+            cmd.env_remove(var);
+        }
+        let out = cmd.args(args).output().unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// A repository with one commit on `main`, plus a worktree per branch.
+    struct Fixture {
+        _tmp: tempfile::TempDir,
+        main: PathBuf,
+    }
+
+    impl Fixture {
+        fn new(branches: &[&str]) -> Self {
+            let tmp = tempfile::tempdir().unwrap();
+            // macOS hands out /var/... symlinks; git reports the resolved path.
+            let root = tmp.path().canonicalize().unwrap();
+            let main = root.join("repo");
+
+            git_in(&root, &["init", "--initial-branch=main", "repo"]);
+            git_in(&main, &["config", "user.email", "test@example.com"]);
+            git_in(&main, &["config", "user.name", "Test"]);
+            std::fs::write(main.join("README.md"), "hello\n").unwrap();
+            git_in(&main, &["add", "."]);
+            git_in(&main, &["commit", "-m", "init"]);
+
+            for branch in branches {
+                let path = root.join("worktrees").join(branch);
+                git_in(
+                    &main,
+                    &["worktree", "add", "-b", branch, path.to_str().unwrap()],
+                );
+            }
+            Self { _tmp: tmp, main }
+        }
+
+        fn repo(&self) -> Repo {
+            Repo {
+                cwd: self.main.clone(),
+                main: self.main.clone(),
+                config: Config::default(),
+            }
+        }
+
+        fn worktree(&self, branch: &str) -> PathBuf {
+            self.main.parent().unwrap().join("worktrees").join(branch)
+        }
+    }
+
+    #[test]
+    fn the_list_leads_with_the_main_worktree_and_marks_where_you_are() {
+        let fixture = Fixture::new(&["feature/auth"]);
+        let items = load(&fixture.repo()).unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].name, "@");
+        assert!(items[0].is_main);
+        assert!(items[0].is_current, "cwd is the main worktree");
+        assert_eq!(items[1].name, "feature/auth");
+        assert!(!items[1].is_main);
+        assert!(!items[1].is_current);
+        // Seven characters of the real commit, not a placeholder.
+        assert_eq!(items[0].head.len(), 7);
+        // The status column is filled in later, off the drawing path.
+        assert!(items.iter().all(|i| i.note.is_empty()));
+    }
+
+    #[test]
+    fn a_worktree_you_are_standing_in_is_the_current_one() {
+        let fixture = Fixture::new(&["feature/auth"]);
+        let mut repo = fixture.repo();
+        repo.cwd = fixture.worktree("feature/auth");
+        let items = load(&repo).unwrap();
+
+        assert!(!items[0].is_current);
+        assert!(items[1].is_current);
+    }
+
+    #[test]
+    fn the_status_column_reports_what_removing_would_cost() {
+        let fixture = Fixture::new(&["feature/auth"]);
+        let merged = vec!["feature/auth".to_string()];
+
+        // A branch off main with no commits of its own is already merged.
+        assert_eq!(
+            note(
+                &fixture.worktree("feature/auth"),
+                Some("feature/auth"),
+                &merged,
+                false,
+                &[]
+            ),
+            "merged"
+        );
+        // Uncommitted work leads, since it is the only thing a removal loses.
+        std::fs::write(fixture.worktree("feature/auth").join("wip.txt"), "wip\n").unwrap();
+        assert_eq!(
+            note(
+                &fixture.worktree("feature/auth"),
+                Some("feature/auth"),
+                &merged,
+                false,
+                &["locked"]
+            ),
+            "dirty, merged, locked"
+        );
+        // The main worktree's branch is merged into itself, which says nothing.
+        assert_eq!(
+            note(
+                &fixture.main,
+                Some("main"),
+                &["main".to_string()],
+                true,
+                &[]
+            ),
+            ""
+        );
+    }
+
+    #[test]
+    fn flags_repeat_only_what_git_says_about_the_worktree() {
+        let plain = worktree("/wt/hotfix", Some("hotfix"));
+        assert!(flags(&plain).is_empty());
+
+        let mut odd = plain.clone();
+        odd.bare = true;
+        odd.detached = true;
+        odd.locked = true;
+        assert_eq!(flags(&odd), ["bare", "detached", "locked"]);
+    }
+
+    #[test]
+    fn the_status_feed_fills_the_column_in_the_background() {
+        let fixture = Fixture::new(&["feature/auth"]);
+        let repo = fixture.repo();
+        let mut items = load(&repo).unwrap();
+        let mut feed = StatusFeed::spawn(&repo, &items);
+
+        // Nothing is waited for on the drawing path, so this is the loop's
+        // poll, bounded so a hang fails the test instead of it.
+        let start = std::time::Instant::now();
+        while !feed.drain(&mut items) {
+            assert!(!feed.is_done(), "the feed finished without reporting");
+            assert!(start.elapsed() < std::time::Duration::from_secs(30));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(feed.is_done());
+        // Drained once and only once; a second call has nothing to redraw for.
+        assert!(!feed.drain(&mut items));
+
+        assert_eq!(items[0].note, "");
+        assert_eq!(items[1].note, "merged");
+    }
+
+    #[test]
+    fn the_dialog_is_not_opened_for_a_worktree_git_would_refuse() {
+        let fixture = Fixture::new(&["feature/auth"]);
+        let repo = fixture.repo();
+        let mut p = Picker::new(load(&repo).unwrap());
+
+        // The main worktree, and the one you are standing in, cannot go.
+        match pending(&repo, &p) {
+            Some(Pending::Blocked(line)) => {
+                assert_eq!(line, "cannot remove `@`: this is the main worktree")
+            }
+            _ => panic!("the main worktree must not reach the dialog"),
+        }
+
+        // Nothing selected, nothing to ask about.
+        p.filter = "zzz".to_string();
+        p.clamp();
+        assert!(pending(&repo, &p).is_none());
+    }
+
+    #[test]
+    fn the_dialog_is_told_what_the_removal_would_cost() {
+        let fixture = Fixture::new(&["feature/auth"]);
+        let repo = fixture.repo();
+        let mut p = Picker::new(load(&repo).unwrap());
+        p.cursor = 1;
+
+        let Some(Pending::Ask(subject)) = pending(&repo, &p) else {
+            panic!("a removable worktree should reach the dialog")
+        };
+        assert_eq!(subject.label, "feature/auth");
+        assert!(subject.merged, "a branch with no commits of its own");
+        assert!(!subject.dirty);
+
+        std::fs::write(fixture.worktree("feature/auth").join("wip.txt"), "wip\n").unwrap();
+        let Some(Pending::Ask(subject)) = pending(&repo, &p) else {
+            panic!("uncommitted work is a warning, not a refusal")
+        };
+        assert!(subject.dirty);
+    }
+
+    #[test]
+    fn removing_from_the_picker_reloads_the_list_and_says_what_went() {
+        let fixture = Fixture::new(&["feature/auth", "hotfix"]);
+        let repo = fixture.repo();
+        let mut p = Picker::new(load(&repo).unwrap());
+        p.cursor = 2;
+        let Some(Pending::Ask(subject)) = pending(&repo, &p) else {
+            panic!("hotfix should be removable")
+        };
+
+        let line = remove_picked(&repo, &mut p, &subject, true).unwrap();
+        assert_eq!(line, "removed `hotfix` and its branch");
+        assert!(!git::local_branch_exists(&repo.main, "hotfix"));
+
+        // The list is reloaded, and the cursor pulled back inside it.
+        assert_eq!(p.items.len(), 2);
+        assert_eq!(p.cursor, 1);
+        assert_eq!(p.selected().unwrap().name, "feature/auth");
+    }
+
+    #[test]
+    fn keeping_the_branch_is_said_out_loud_too() {
+        let fixture = Fixture::new(&["feature/auth"]);
+        let repo = fixture.repo();
+        let mut p = Picker::new(load(&repo).unwrap());
+        p.cursor = 1;
+        let Some(Pending::Ask(subject)) = pending(&repo, &p) else {
+            panic!("feature/auth should be removable")
+        };
+
+        let line = remove_picked(&repo, &mut p, &subject, false).unwrap();
+        assert_eq!(line, "removed `feature/auth`");
+        assert!(git::local_branch_exists(&repo.main, "feature/auth"));
+        assert_eq!(p.items.len(), 1);
+    }
+
+    #[test]
+    fn a_failed_removal_reports_it_instead_of_ending_the_picker() {
+        // The picker is a list you are browsing; a git failure has to land in
+        // the status line, not close the screen out from under you.
+        let fixture = Fixture::new(&["feature/auth"]);
+        let repo = fixture.repo();
+        let mut p = Picker::new(load(&repo).unwrap());
+        p.cursor = 1;
+        let Some(Pending::Ask(mut subject)) = pending(&repo, &p) else {
+            panic!("feature/auth should be removable")
+        };
+        // A path git knows nothing about: the removal fails, the list stands.
+        subject.worktree.path = fixture.main.parent().unwrap().join("gone");
+
+        let line = remove_picked(&repo, &mut p, &subject, false).unwrap();
+        assert!(
+            line.starts_with("failed to remove `feature/auth`:"),
+            "{line}"
+        );
+        assert_eq!(p.items.len(), 2);
     }
 }

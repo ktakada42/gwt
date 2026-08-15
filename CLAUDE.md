@@ -86,13 +86,13 @@ v2.1.0
 EOF
 ```
 
+Without `--cleanup=verbatim`, git's default cleanup treats every `##` heading as
+a comment and strips it, silently — the message keeps its prose and loses its
+structure, and nothing notices until the release is published. v2.1.0 was
+published that way and its notes had to be repaired by hand.
+
 The subject line is git's, not the reader's: the workflow takes the body from
 `%(contents:body)` and names the release after the tag, so whatever stands on
 the first line never reaches the Releases page. Keep it to the version — a
 subject that repeated the tool's name is what put "gwx v2.1.0" on three release
 titles before `--title` was passed explicitly.
-
-Without it, git's default cleanup treats every `##` heading as a comment and
-strips it, silently — the message keeps its prose and loses its structure, and
-nothing notices until the release is published. v2.1.0 was published that way
-and its notes had to be repaired by hand.

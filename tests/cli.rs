@@ -639,6 +639,114 @@ fn a_chosen_directory_is_handed_over_through_a_file() {
 }
 
 #[test]
+fn add_hands_the_new_worktree_over_only_when_asked() {
+    let fx = Fixture::new();
+    let handoff = fx.root.join("cd-request");
+
+    // Without --cd the wrapper still offers the file, and nothing is written
+    // to it: typing `gwx add` alone leaves you where you were.
+    let out = command(BIN)
+        .current_dir(&fx.repo)
+        .env("XDG_CONFIG_HOME", fx.root.join("config"))
+        .env("GWX_CD_FILE", &handoff)
+        .args(["add", "feature/stay"])
+        .output()
+        .expect("failed to run gwx");
+    assert!(out.status.success());
+    assert!(!handoff.exists());
+
+    // With it, the path goes to the file *and* stays on stdout, which is what
+    // `gwx add --quiet` promises a script.
+    let out = command(BIN)
+        .current_dir(&fx.repo)
+        .env("XDG_CONFIG_HOME", fx.root.join("config"))
+        .env("GWX_CD_FILE", &handoff)
+        .args(["add", "feature/move", "--cd", "--quiet"])
+        .output()
+        .expect("failed to run gwx");
+    assert!(out.status.success());
+
+    let expected = fx.worktrees_dir().join("feature/move");
+    assert_eq!(
+        std::fs::read_to_string(&handoff).unwrap().trim_end(),
+        expected.to_str().unwrap()
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim_end(),
+        expected.to_str().unwrap()
+    );
+}
+
+#[test]
+fn add_says_when_there_is_no_shell_to_move() {
+    let fx = Fixture::new();
+
+    // No GWX_CD_FILE: the shell function is missing or predates --cd. The
+    // worktree is still made, and asking to be moved cannot pass unremarked.
+    let out = fx.gwx(["add", "feature/nowhere", "--cd"]);
+    assert!(out.status.success());
+    assert!(fx.worktrees_dir().join("feature/nowhere").exists());
+
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert!(err.contains("could not change directory"), "{err}");
+    assert!(err.contains("shell-init"), "{err}");
+}
+
+#[test]
+fn add_moves_only_after_the_hooks_have_run() {
+    let fx = Fixture::new();
+    fx.write_config(
+        r#"
+[[hooks.post_create]]
+type = "command"
+command = "echo ran > hook-marker"
+"#,
+    );
+    let handoff = fx.root.join("cd-request");
+
+    let out = command(BIN)
+        .current_dir(&fx.repo)
+        .env("XDG_CONFIG_HOME", fx.root.join("config"))
+        .env("GWX_CD_FILE", &handoff)
+        .args(["add", "feature/ready", "--cd"])
+        .output()
+        .expect("failed to run gwx");
+    assert!(out.status.success());
+
+    // The worktree named in the file is one the hooks have finished with.
+    let target = std::fs::read_to_string(&handoff).unwrap();
+    assert!(PathBuf::from(target.trim_end())
+        .join("hook-marker")
+        .exists());
+}
+
+#[test]
+fn a_failed_hook_leaves_the_shell_where_it_was() {
+    let fx = Fixture::new();
+    fx.write_config(
+        r#"
+[[hooks.post_create]]
+type = "command"
+command = "exit 1"
+"#,
+    );
+    let handoff = fx.root.join("cd-request");
+
+    let out = command(BIN)
+        .current_dir(&fx.repo)
+        .env("XDG_CONFIG_HOME", fx.root.join("config"))
+        .env("GWX_CD_FILE", &handoff)
+        .args(["add", "feature/broken", "--cd"])
+        .output()
+        .expect("failed to run gwx");
+
+    // Moving into a worktree whose setup gave up halfway would hide the
+    // failure behind a changed prompt.
+    assert!(!out.status.success());
+    assert!(!handoff.exists());
+}
+
+#[test]
 fn list_stays_plain_without_a_terminal() {
     let fx = Fixture::new();
     fx.gwx_ok(["add", "feature/one"]);

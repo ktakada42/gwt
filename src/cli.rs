@@ -97,6 +97,10 @@ pub struct AddArgs {
     #[arg(long)]
     pub force: bool,
 
+    /// Move the shell into the new worktree, once the hooks have run
+    #[arg(long)]
+    pub cd: bool,
+
     /// Print only the worktree path
     #[arg(short, long)]
     pub quiet: bool,

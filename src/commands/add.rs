@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{bail, Context, Result};
 
+use crate::cd_target;
 use crate::cli::AddArgs;
 use crate::config::normalize;
 use crate::git;
@@ -102,10 +103,15 @@ pub fn run(args: AddArgs) -> Result<()> {
             &ctx,
             reporting,
         )
-        // The hook's own error already names the phase. What it cannot say is
-        // that the worktree survives the failure, which is what decides
-        // whether you go and look at it or run the command again.
-        .with_context(|| format!("the worktree was created and is left at {}", path.display()))?;
+        // The hook's own error already names the phase; what it cannot say
+        // is that the worktree survives it.
+        .with_context(|| left_behind(&path))?;
+    }
+
+    // After the hooks rather than before them: the point of being moved is to
+    // land in a worktree that is ready, not in one that is still installing.
+    if args.cd {
+        cd_target::request_beside_output(&path).with_context(|| left_behind(&path))?;
     }
 
     if args.quiet {
@@ -115,6 +121,13 @@ pub fn run(args: AddArgs) -> Result<()> {
         println!("{}", path.display());
     }
     Ok(())
+}
+
+/// What a failure past `git worktree add` has to say for itself: the worktree
+/// is still there. That is what decides whether you go and look at it or run
+/// the command again.
+fn left_behind(path: &Path) -> String {
+    format!("the worktree was created and is left at {}", path.display())
 }
 
 /// Refuses a name git would read as an option.

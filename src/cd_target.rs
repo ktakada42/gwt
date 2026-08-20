@@ -9,7 +9,7 @@
 //! destination. Keeping stdout free also means `gwx list --paths | peco` still
 //! streams and pipes exactly as it did.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -33,12 +33,36 @@ pub fn request_picked(path: &Path) -> Result<()> {
     let integrated = file.as_ref().is_some_and(|f| !f.is_empty());
     write_request(file, path)?;
     if !integrated {
-        eprintln!(
-            "gwx: could not change directory — the shell integration is missing or out of date."
-        );
-        eprintln!("     Start a new shell, or reload it with: eval \"$(gwx shell-init zsh)\"");
+        warn_not_integrated();
     }
     Ok(())
+}
+
+/// Asks the shell to move into `path` for a command that prints the path
+/// itself.
+///
+/// `gwx cd` hands its answer over *instead of* printing it, because the path
+/// is the whole of its output. `gwx add --cd` cannot do that: there the path
+/// is what the command produced, and `--quiet` exists so that a script can
+/// read it from stdout. So the request goes to the file and nowhere else,
+/// leaving the caller to print as it always did.
+///
+/// Without a file the move was asked for and will not happen, which is the
+/// same dead end `request_picked` describes.
+pub fn request_beside_output(path: &Path) -> Result<()> {
+    match std::env::var_os(CD_FILE_VAR) {
+        Some(file) if !file.is_empty() => write_file(&file, path),
+        _ => {
+            warn_not_integrated();
+            Ok(())
+        }
+    }
+}
+
+/// Says that a `cd` was asked for and that nobody was listening.
+fn warn_not_integrated() {
+    eprintln!("gwx: could not change directory — the shell integration is missing or out of date.");
+    eprintln!("     Start a new shell, or reload it with: eval \"$(gwx shell-init zsh)\"");
 }
 
 /// Writes the request to `file`, falling back to stdout when there is none.
@@ -47,18 +71,21 @@ pub fn request_picked(path: &Path) -> Result<()> {
 /// to stdout instead and `cd "$(gwx cd feature/x)"` keeps working.
 fn write_request(file: Option<OsString>, path: &Path) -> Result<()> {
     match file {
-        Some(file) if !file.is_empty() => std::fs::write(&file, format!("{}\n", path.display()))
-            .with_context(|| {
-                format!(
-                    "failed to write the target directory to {}",
-                    Path::new(&file).display()
-                )
-            }),
+        Some(file) if !file.is_empty() => write_file(&file, path),
         _ => {
             println!("{}", path.display());
             Ok(())
         }
     }
+}
+
+fn write_file(file: &OsStr, path: &Path) -> Result<()> {
+    std::fs::write(file, format!("{}\n", path.display())).with_context(|| {
+        format!(
+            "failed to write the target directory to {}",
+            Path::new(file).display()
+        )
+    })
 }
 
 #[cfg(test)]

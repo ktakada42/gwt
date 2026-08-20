@@ -15,10 +15,12 @@ pub const COMPLETE_VAR: &str = "COMPLETE";
 /// its table, and keeps `gwx list --paths | peco` streaming as before.
 ///
 /// Only the subcommands that can ask for a `cd` pay for the temporary file.
+/// `add` is one of them because of `--cd`, and the wrapper does not read the
+/// flag: without it gwx simply leaves the file empty and nothing moves.
 const POSIX_FUNCTION: &str = r#"
 gwx() {
     case "${1-}" in
-        cd|list|ls)
+        cd|list|ls|add)
             __gwx_file="$(mktemp "${TMPDIR:-/tmp}/gwx-cd.XXXXXX")" || return 1
             GWX_CD_FILE="$__gwx_file" command gwx "$@"
             __gwx_status=$?
@@ -40,7 +42,7 @@ gwx() {
 
 const FISH_FUNCTION: &str = r#"
 function gwx --wraps gwx --description 'git worktree manager'
-    if test (count $argv) -ge 1; and contains -- "$argv[1]" cd list ls
+    if test (count $argv) -ge 1; and contains -- "$argv[1]" cd list ls add
         set -l __gwx_file (mktemp "$TMPDIR"/gwx-cd.XXXXXX 2>/dev/null; or mktemp /tmp/gwx-cd.XXXXXX)
         GWX_CD_FILE=$__gwx_file command gwx $argv
         set -l __gwx_status $status
@@ -107,8 +109,8 @@ mod tests {
 
     #[test]
     fn wrapper_only_intercepts_the_subcommands_that_can_move_you() {
-        assert!(POSIX_FUNCTION.contains("cd|list|ls)"));
-        assert!(FISH_FUNCTION.contains(r#"contains -- "$argv[1]" cd list ls"#));
+        assert!(POSIX_FUNCTION.contains("cd|list|ls|add)"));
+        assert!(FISH_FUNCTION.contains(r#"contains -- "$argv[1]" cd list ls add"#));
         // Everything else must reach the binary untouched.
         assert!(POSIX_FUNCTION.contains(r#"command gwx "$@""#));
         assert!(FISH_FUNCTION.contains("command gwx $argv"));

@@ -27,7 +27,7 @@ A bare `gwx cd` goes to the main worktree, the way a bare `cd` takes you home.
 
 ```
 gwx add <branch> [--from <commit-ish>] [--path <path>]
-                 [--no-create] [--no-hooks] [--force] [--quiet]
+                 [--no-create] [--no-hooks] [--force] [--cd] [--quiet]
 ```
 
 The branch is resolved in this order:
@@ -47,6 +47,36 @@ cd "$(gwx add feature/auth --quiet)"
 
 `--no-hooks` skips the `pre_create` and `post_create` hooks. See
 [Hooks](hooks.md).
+
+### `--cd`: land in the worktree you just made
+
+`gwx add --cd` leaves your shell inside the new worktree instead of where you
+typed the command:
+
+```console
+~/repo $ gwx add feature/auth --cd
+Created branch `feature/auth` from `HEAD`
+Running post_create hooks...
+  [1/1] npm install
+Worktree ready.
+~/worktrees/feature/auth $
+```
+
+The move happens **after** `post_create`, so you arrive in a worktree that is
+set up rather than one that is still installing. If a hook fails, the move is
+called off: the worktree is left for you to look at, and a changed prompt would
+only hide the failure.
+
+The path is still printed, so `--quiet` keeps working for scripts whether or
+not `--cd` is given.
+
+> [!NOTE]
+> **`--cd` needs the shell function**, like `gwx cd` and the picker do — a
+> process cannot move its parent shell on its own. The function only grew to
+> cover `add` when `--cd` arrived, so a shell that has been open since before
+> then knows nothing about it. gwx says so rather than doing nothing — start a
+> new shell, or re-run the `eval` from
+> [the README](https://github.com/ktakada42/gwx#shell-integration).
 
 ## `gwx remove`
 
@@ -114,8 +144,8 @@ returns in milliseconds into one that does not. If you want that judgement,
 
 ## `gwx shell-init` and `gwx completion`
 
-`shell-init` prints the shell function that makes `gwx cd` and the picker able
-to change your shell's directory, plus the completion hookup. `completion`
+`shell-init` prints the shell function that makes `gwx cd`, `gwx add --cd` and
+the picker able to change your shell's directory, plus the completion hookup. `completion`
 prints the completion hookup on its own, for people who do not want the `cd`
 function.
 

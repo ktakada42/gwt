@@ -414,8 +414,8 @@ fn pending(repo: &Repo, picker: &Picker) -> Option<Pending> {
     let merged = worktree
         .branch
         .as_deref()
-        .map(|b| git::is_merged(&repo.main, b).unwrap_or(false))
-        .unwrap_or(false);
+        .zip(git::MergeState::read(&repo.main).ok())
+        .is_some_and(|(b, merges)| merges.of(b) != git::Merged::No);
 
     Some(Pending::Ask(Subject {
         worktree,
@@ -642,7 +642,8 @@ fn load(repo: &Repo) -> Result<Vec<Item>> {
 ///
 /// One background thread asks which branches are merged, then fans out a
 /// thread per worktree for the `git status` calls, so ten worktrees cost about
-/// as long as the slowest one rather than the sum of all ten.
+/// as long as the slowest one rather than the sum of all ten. The content test
+/// a squash merge needs is per branch, so it rides along in the same fan-out.
 struct StatusFeed {
     rx: Option<std::sync::mpsc::Receiver<Vec<(usize, String)>>>,
 }
@@ -674,15 +675,15 @@ impl StatusFeed {
             .collect();
 
         std::thread::spawn(move || {
-            let merged = git::merged_branches(&main).unwrap_or_default();
+            let merges = git::MergeState::read(&main).ok();
             let mut workers = Vec::new();
             for subject in subjects {
-                let merged = merged.clone();
+                let merges = merges.clone();
                 workers.push(std::thread::spawn(move || {
                     let note = note(
                         &subject.path,
                         subject.branch.as_deref(),
-                        &merged,
+                        merges.as_ref(),
                         subject.is_main,
                         &subject.flags,
                     );
@@ -738,7 +739,7 @@ impl StatusFeed {
 fn note(
     path: &std::path::Path,
     branch: Option<&str>,
-    merged: &[String],
+    merges: Option<&git::MergeState>,
     is_main: bool,
     flags: &[&str],
 ) -> String {
@@ -748,8 +749,12 @@ fn note(
         notes.push("dirty".to_string());
     }
     if !is_main {
-        if let Some(branch) = branch {
-            if merged.iter().any(|b| b == branch) {
+        if let Some((branch, merges)) = branch.zip(merges) {
+            // Squash-merged and plainly merged both read as "merged" here.
+            // The column is a hint about what a removal would cost, and the
+            // cost is the same; `gwx clean` is where the difference is spelt
+            // out.
+            if merges.of(branch) != git::Merged::No {
                 notes.push("merged".to_string());
             }
         }
@@ -2207,14 +2212,14 @@ mod tests {
     #[test]
     fn the_status_column_reports_what_removing_would_cost() {
         let fixture = Fixture::new(&["feature/auth"]);
-        let merged = vec!["feature/auth".to_string()];
+        let merges = git::MergeState::read(&fixture.main).unwrap();
 
         // A branch off main with no commits of its own is already merged.
         assert_eq!(
             note(
                 &fixture.worktree("feature/auth"),
                 Some("feature/auth"),
-                &merged,
+                Some(&merges),
                 false,
                 &[]
             ),
@@ -2226,7 +2231,7 @@ mod tests {
             note(
                 &fixture.worktree("feature/auth"),
                 Some("feature/auth"),
-                &merged,
+                Some(&merges),
                 false,
                 &["locked"]
             ),
@@ -2234,13 +2239,7 @@ mod tests {
         );
         // The main worktree's branch is merged into itself, which says nothing.
         assert_eq!(
-            note(
-                &fixture.main,
-                Some("main"),
-                &["main".to_string()],
-                true,
-                &[]
-            ),
+            note(&fixture.main, Some("main"), Some(&merges), true, &[]),
             ""
         );
     }

@@ -1052,6 +1052,111 @@ fn clean_sorts_worktrees_by_what_removing_them_would_cost() {
     );
 }
 
+/// Commits `body` as `file` in the worktree at `dir`.
+fn commit(dir: &Path, file: &str, body: &str, message: &str) {
+    git(dir, ["config", "user.email", "test@example.com"]);
+    git(dir, ["config", "user.name", "Test"]);
+    std::fs::write(dir.join(file), body).unwrap();
+    git(dir, ["add", "."]);
+    git(dir, ["commit", "-m", message]);
+}
+
+#[test]
+fn clean_sees_through_a_squash_or_rebase_merge() {
+    let fx = Fixture::new();
+
+    // A squash merge: the branch's cumulative diff lands on main as one new
+    // commit, and the commits it was made of stay unreachable from HEAD.
+    let squashed = PathBuf::from(fx.gwx_ok(["add", "feature/squashed"]));
+    commit(&squashed, "squashed.txt", "one\n", "work 1");
+    commit(&squashed, "squashed.txt", "one\ntwo\n", "work 2");
+    git(&fx.repo, ["merge", "--squash", "feature/squashed"]);
+    git(&fx.repo, ["commit", "-m", "feature/squashed (#1)"]);
+
+    // A rebase merge: the same work replayed under new hashes. Main has to
+    // move first, or replaying the commit onto the tip it already sits on
+    // reproduces it byte for byte and git hands back the very same hash.
+    let rebased = PathBuf::from(fx.gwx_ok(["add", "feature/rebased"]));
+    commit(&rebased, "rebased.txt", "one\n", "rebased work");
+    commit(&fx.repo, "elsewhere.txt", "unrelated\n", "unrelated work");
+    git(&fx.repo, ["cherry-pick", "feature/rebased"]);
+
+    // Squash merged and then taken back out: the commits are unreachable and
+    // the work is not on HEAD either, so nothing here is finished.
+    let reverted = PathBuf::from(fx.gwx_ok(["add", "feature/reverted"]));
+    commit(&reverted, "reverted.txt", "one\n", "reverted work");
+    git(&fx.repo, ["merge", "--squash", "feature/reverted"]);
+    git(&fx.repo, ["commit", "-m", "feature/reverted (#3)"]);
+    git(&fx.repo, ["revert", "--no-edit", "HEAD"]);
+
+    // Real work that never went anywhere.
+    let open = PathBuf::from(fx.gwx_ok(["add", "feature/open"]));
+    commit(&open, "open.txt", "one\n", "open work");
+
+    let out = fx.gwx(["clean"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let table = String::from_utf8_lossy(&out.stdout);
+    let row = |name: &str| {
+        table
+            .lines()
+            .find(|l| l.starts_with(name))
+            .unwrap_or_else(|| panic!("no row for {name} in:\n{table}"))
+            .to_string()
+    };
+
+    for name in ["feature/squashed", "feature/rebased"] {
+        let row = row(name);
+        assert!(row.contains("yes  "), "{name} is finished:\n{table}");
+        assert!(
+            row.contains("squash or rebase merged"),
+            "{name} should say why:\n{table}"
+        );
+    }
+    // A revert puts the work back where it was; the branch is live again.
+    assert!(row("feature/reverted").contains("yes (local)"), "{table}");
+    assert!(row("feature/open").contains("yes (local)"), "{table}");
+}
+
+#[test]
+fn remove_deletes_a_squash_merged_branch_git_would_refuse() {
+    let fx = Fixture::new();
+    let path = PathBuf::from(fx.gwx_ok(["add", "feature/squashed"]));
+    commit(&path, "squashed.txt", "one\n", "work");
+    git(&fx.repo, ["merge", "--squash", "feature/squashed"]);
+    git(&fx.repo, ["commit", "-m", "feature/squashed (#1)"]);
+
+    // `git branch -d` refuses this branch: it asks about ancestry, and the
+    // squash merge left the tip unreachable. gwx has already answered the
+    // content question, so it must not be stopped by the weaker test.
+    let out = fx.gwx(["remove", "feature/squashed", "--with-branch"]);
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!path.exists());
+    assert!(!git_out(&fx.repo, ["branch", "--list", "feature/squashed"]).contains("squashed"));
+}
+
+#[test]
+fn remove_keeps_a_branch_whose_work_was_reverted() {
+    let fx = Fixture::new();
+    let path = PathBuf::from(fx.gwx_ok(["add", "feature/reverted"]));
+    commit(&path, "reverted.txt", "one\n", "work");
+    git(&fx.repo, ["merge", "--squash", "feature/reverted"]);
+    git(&fx.repo, ["commit", "-m", "feature/reverted (#1)"]);
+    git(&fx.repo, ["revert", "--no-edit", "HEAD"]);
+
+    let out = fx.gwx(["remove", "feature/reverted", "--with-branch"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("not merged"));
+    assert!(git_out(&fx.repo, ["branch", "--list", "feature/reverted"]).contains("reverted"));
+}
+
 #[test]
 fn init_writes_a_config_template() {
     let fx = Fixture::new();

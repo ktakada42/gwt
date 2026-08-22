@@ -137,12 +137,18 @@ space was better spent on whether the worktree is safe to remove.
 The table keeps it, and does not show `STATUS`, for a reason that is about
 cost. Working the status out takes a `git status` per worktree, one
 `git branch --merged` for the repository, and a `git merge-tree` for each
-branch that call did not vouch for — on a repository with 5,000 commits and
-101 branches, 21ms each, 252ms, and about the cost of starting git. The picker can afford that
-because it fills the column in after the list is already on screen; a table
-printed in one go would have to wait for all of it, turning a listing that
-returns in milliseconds into one that does not. If you want that judgement,
-[`gwx clean`](clean.md) answers a sharper version of it.
+branch that call did not vouch for. Which of those dominates depends on the
+shape of the repository: the merged check grows with the number of local
+branches, and `git status` grows with the size of the working tree. On a
+monorepo the second wins outright — hundreds of milliseconds per worktree,
+against tens for everything else put together.
+
+The picker can afford it because it fills the column in after the list is
+already on screen, and asks about every worktree at once rather than one after
+another; a table printed in one go would have to wait for all of it, turning a
+listing that returns in milliseconds into one that does not. If you want that
+judgement, [`gwx clean`](clean.md) answers a sharper version of it, and pays
+for it the same way.
 
 ## `gwx shell-init` and `gwx completion`
 

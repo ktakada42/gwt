@@ -7,6 +7,8 @@
 //! is about whether the work is *finished*, which is a different question and
 //! the reason nothing but `done` is selected for you.
 
+use std::collections::BTreeMap;
+
 use anyhow::{bail, Result};
 
 use crate::cli::CleanArgs;
@@ -145,28 +147,57 @@ pub fn candidates(repo: &Repo) -> Result<Vec<Candidate>> {
     let merges = git::MergeState::read(&repo.main)?;
     let tracking = git::tracking(&repo.main)?;
 
-    let mut out = Vec::new();
-    for worktree in worktrees.into_iter().skip(1) {
-        if removal_blocker(repo, &worktree, true).is_some() {
-            continue;
-        }
-        let dirty = git::is_dirty(&worktree.path).unwrap_or(false);
-        let branch = worktree.branch.clone();
-        let merged = branch.as_deref().map_or(Merged::No, |b| merges.of(b));
-        let track = branch
-            .as_ref()
-            .and_then(|b| tracking.get(b).copied())
-            .unwrap_or(Tracking::Untracked);
+    // What is left is per worktree, and on a large working tree it is the
+    // whole cost of the command: `git status` walks every tracked file, so a
+    // monorepo with twelve worktrees spent seconds here one worktree at a
+    // time. They do not depend on each other, so they run at once — the same
+    // fan-out the picker already uses to fill its status column.
+    //
+    // The blocker check stays out here: with `force` it compares paths and
+    // asks git nothing, and a worktree it turns down needs no thread.
+    let removable: Vec<Worktree> = worktrees
+        .into_iter()
+        .skip(1)
+        .filter(|worktree| removal_blocker(repo, worktree, true).is_none())
+        .collect();
 
-        let (state, note) = classify(dirty, merged, track);
-        out.push(Candidate {
-            name: repo.display_name(&worktree, &main),
-            worktree,
-            state,
-            note,
-        });
+    Ok(std::thread::scope(|scope| {
+        // Every worker reads the same three answers and owns none of them.
+        let (main, merges, tracking) = (&main, &merges, &tracking);
+        let workers: Vec<_> = removable
+            .iter()
+            .map(|worktree| scope.spawn(move || describe(repo, worktree, main, merges, tracking)))
+            .collect();
+        workers.into_iter().filter_map(|w| w.join().ok()).collect()
+    }))
+}
+
+/// Works out one worktree's state, on a thread of its own.
+///
+/// The two questions it asks git — is the working tree dirty, and is the
+/// branch's work on `HEAD` — are the ones that cost anything, and neither
+/// needs an answer about any other worktree.
+fn describe(
+    repo: &Repo,
+    worktree: &Worktree,
+    main: &Worktree,
+    merges: &git::MergeState,
+    tracking: &BTreeMap<String, Tracking>,
+) -> Candidate {
+    let dirty = git::is_dirty(&worktree.path).unwrap_or(false);
+    let branch = worktree.branch.as_deref();
+    let merged = branch.map_or(Merged::No, |b| merges.of(b));
+    let track = branch
+        .and_then(|b| tracking.get(b).copied())
+        .unwrap_or(Tracking::Untracked);
+
+    let (state, note) = classify(dirty, merged, track);
+    Candidate {
+        name: repo.display_name(worktree, main),
+        worktree: worktree.clone(),
+        state,
+        note,
     }
-    Ok(out)
 }
 
 /// The state a worktree is in, and the sentence that explains it.

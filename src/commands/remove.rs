@@ -3,7 +3,7 @@
 use anyhow::{bail, Context, Result};
 
 use crate::cli::RemoveArgs;
-use crate::git::{self, Worktree};
+use crate::git::{self, Merged, Worktree};
 use crate::hooks::{self, HookContext, Phase, Reporting};
 use crate::repo::Repo;
 
@@ -89,13 +89,23 @@ pub fn remove_worktree(repo: &Repo, worktree: &Worktree, opts: RemoveOptions) ->
         let Some(branch) = worktree.branch.as_deref() else {
             bail!("{}, but it had no branch to remove", removed());
         };
-        if !opts.force && !git::is_merged(&repo.main, branch)? {
+        let merged = git::MergeState::read(&repo.main)?.of(branch);
+        if !opts.force && merged == Merged::No {
             bail!(
                 "{}, but branch `{branch}` is not merged into HEAD of the main worktree and was kept; pass --force to delete it too",
                 removed()
             );
         }
-        let flag = if opts.force { "-D" } else { "-d" };
+        // `git branch -d` runs the same ancestry test that misses a squash
+        // merge, so it would refuse the branch gwx has just decided is safe.
+        // Reaching for `-D` means gwx answers for the deletion, which is why
+        // the check behind `Merged::Changes` is the one that never says yes to
+        // work that was merged and then reverted.
+        let flag = if merged == Merged::Commits && !opts.force {
+            "-d"
+        } else {
+            "-D"
+        };
         run_git(&repo.main, ["branch", flag, "--", branch], opts.quiet)
             .with_context(|| format!("failed to delete branch `{branch}`"))
             .with_context(removed)?;

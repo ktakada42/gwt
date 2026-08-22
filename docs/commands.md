@@ -86,8 +86,9 @@ gwx remove <name> [--with-branch] [--force] [--no-hooks]
 
 Refuses to delete the main worktree, the worktree you are standing in, or one
 with uncommitted changes. `--with-branch` also deletes the branch, but only
-when it is merged into `HEAD` of the main worktree; `--force` overrides both
-checks. `--no-hooks` skips the `pre_remove` and `post_remove` hooks, which is
+when its work is in `HEAD` of the main worktree — either merged there, or
+[squash or rebase merged](clean.md#a-squash-merge-counts-as-merged);
+`--force` overrides both checks. `--no-hooks` skips the `pre_remove` and `post_remove` hooks, which is
 the way out when a hook itself is what stands between you and a stale
 worktree.
 
@@ -134,9 +135,10 @@ the branch name, so it repeated what the first column already said, and the
 space was better spent on whether the worktree is safe to remove.
 
 The table keeps it, and does not show `STATUS`, for a reason that is about
-cost. Working the status out takes a `git status` per worktree and one
-`git branch --merged` for the repository — on a repository with 5,000 commits
-and 101 branches, 21ms each and 252ms respectively. The picker can afford that
+cost. Working the status out takes a `git status` per worktree, one
+`git branch --merged` for the repository, and a `git merge-tree` for each
+branch that call did not vouch for — on a repository with 5,000 commits and
+101 branches, 21ms each, 252ms, and about the cost of starting git. The picker can afford that
 because it fills the column in after the list is already on screen; a table
 printed in one go would have to wait for all of it, turning a listing that
 returns in milliseconds into one that does not. If you want that judgement,

@@ -292,15 +292,106 @@ pub fn is_dirty(path: &Path) -> Result<bool> {
     Ok(!output(path, ["status", "--porcelain"])?.is_empty())
 }
 
-/// `true` if `branch` is fully contained in `HEAD` of the main worktree.
-pub fn is_merged(main: &Path, branch: &str) -> Result<bool> {
-    Ok(merged_branches(main)?.iter().any(|b| b == branch))
+/// What `HEAD` of the main worktree already holds of a branch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Merged {
+    /// Its commits are reachable from `HEAD`.
+    Commits,
+    /// Its commits are not, but its changes are. A squash or rebase merge
+    /// rewrites the branch's commits, which leaves the tip unreachable while
+    /// the work itself sits on `HEAD` under new hashes.
+    Changes,
+    /// `HEAD` is missing something the branch has.
+    No,
+}
+
+/// Answers `Merged` for the branches of one repository.
+///
+/// The ancestry list is a single call that answers every branch at once, so it
+/// is made up front. The content test costs a call per branch, so it is only
+/// made for the branches ancestry turned down — in practice the handful that
+/// have a worktree.
+#[derive(Debug, Clone)]
+pub struct MergeState {
+    main: PathBuf,
+    ancestors: Vec<String>,
+    /// `None` when `HEAD` has no tree to compare against, which is a
+    /// repository without commits. Every branch is then `No`.
+    head_tree: Option<String>,
+}
+
+impl MergeState {
+    pub fn read(main: &Path) -> Result<Self> {
+        Ok(Self {
+            main: main.to_path_buf(),
+            ancestors: merged_branches(main)?,
+            head_tree: output(main, ["rev-parse", "HEAD^{tree}"]).ok(),
+        })
+    }
+
+    pub fn of(&self, branch: &str) -> Merged {
+        if self.ancestors.iter().any(|b| b == branch) {
+            return Merged::Commits;
+        }
+        if self.merging_would_change_nothing(branch) {
+            return Merged::Changes;
+        }
+        Merged::No
+    }
+
+    /// `true` when merging `branch` into `HEAD` would produce `HEAD`'s tree.
+    ///
+    /// This is the question `git branch --merged` cannot answer. It asks about
+    /// ancestry, and a squash merge writes the branch's cumulative diff as one
+    /// new commit, leaving the original commits unreferenced — merged in
+    /// content and invisible to the check. Merging the two in memory and
+    /// comparing the result with `HEAD` asks about the content instead, which
+    /// covers a rebase merge and a conflict resolved during the merge too.
+    ///
+    /// What it deliberately does not do is answer `true` for a branch whose
+    /// work was merged and then reverted: the merge would put the reverted
+    /// changes back, so the trees differ. That matters because this answer is
+    /// what lets `--with-branch` delete a branch git itself would refuse.
+    ///
+    /// Three ways for the call to fail, all of which mean `false` rather than
+    /// an error: a conflict exits 1, git before 2.38 does not know
+    /// `--write-tree`, and a branch that is gone cannot be merged. Each leaves
+    /// the ancestry answer standing on its own, which is what gwx did before.
+    ///
+    /// `--write-tree` writes the merged tree to the object store. When the
+    /// answer is `true` that tree is `HEAD`'s own and already there, so the
+    /// common case writes nothing; an unmerged branch leaves a tree that `git
+    /// gc` prunes with every other unreachable object.
+    fn merging_would_change_nothing(&self, branch: &str) -> bool {
+        let Some(head_tree) = &self.head_tree else {
+            return false;
+        };
+        let merges_clean = output(&self.main, ["merge-tree", "--write-tree", "HEAD", branch])
+            .is_ok_and(|tree| tree == *head_tree);
+        merges_clean && self.introduces_something(branch)
+    }
+
+    /// `true` if `branch` changed anything at all since it left `HEAD`.
+    ///
+    /// A branch that changed nothing merges into anything without effect, so
+    /// the tree comparison above says `true` about it while proving nothing:
+    /// there is no work on it to find on `HEAD`. Such a branch is still live —
+    /// its commits are real, and whether they are anywhere else is a question
+    /// its upstream answers — so it keeps the state its tracking gives it.
+    ///
+    /// `HEAD...branch` is the diff from the merge base to the branch, which is
+    /// exactly the work the branch claims. `--quiet` reports it as an exit
+    /// code: 0 for no difference.
+    fn introduces_something(&self, branch: &str) -> bool {
+        !check(
+            &self.main,
+            ["diff", "--quiet", &format!("HEAD...{branch}"), "--"],
+        )
+    }
 }
 
 /// Every branch already contained in `HEAD` of the main worktree.
-///
-/// The picker asks about each worktree in turn; one call answers them all.
-pub fn merged_branches(main: &Path) -> Result<Vec<String>> {
+fn merged_branches(main: &Path) -> Result<Vec<String>> {
     let out = output(
         main,
         ["branch", "--merged", "HEAD", "--format=%(refname:short)"],

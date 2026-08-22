@@ -11,7 +11,7 @@ use anyhow::{bail, Result};
 
 use crate::cli::CleanArgs;
 use crate::commands::remove::{removal_blocker, remove_worktree, RemoveOptions};
-use crate::git::{self, Tracking, Worktree};
+use crate::git::{self, Merged, Tracking, Worktree};
 use crate::repo::Repo;
 use crate::tui;
 
@@ -141,8 +141,8 @@ pub fn candidates(repo: &Repo) -> Result<Vec<Candidate>> {
         bail!("no worktrees found");
     };
 
-    // Two calls for the whole repository rather than two per worktree.
-    let merged = git::merged_branches(&repo.main)?;
+    // Repository-wide calls, made once rather than once per worktree.
+    let merges = git::MergeState::read(&repo.main)?;
     let tracking = git::tracking(&repo.main)?;
 
     let mut out = Vec::new();
@@ -152,13 +152,13 @@ pub fn candidates(repo: &Repo) -> Result<Vec<Candidate>> {
         }
         let dirty = git::is_dirty(&worktree.path).unwrap_or(false);
         let branch = worktree.branch.clone();
-        let is_merged = branch.as_ref().is_some_and(|b| merged.contains(b));
+        let merged = branch.as_deref().map_or(Merged::No, |b| merges.of(b));
         let track = branch
             .as_ref()
             .and_then(|b| tracking.get(b).copied())
             .unwrap_or(Tracking::Untracked);
 
-        let (state, note) = classify(dirty, is_merged, track);
+        let (state, note) = classify(dirty, merged, track);
         out.push(Candidate {
             name: repo.display_name(&worktree, &main),
             worktree,
@@ -170,18 +170,25 @@ pub fn candidates(repo: &Repo) -> Result<Vec<Candidate>> {
 }
 
 /// The state a worktree is in, and the sentence that explains it.
-fn classify(dirty: bool, merged: bool, track: Tracking) -> (State, String) {
+///
+/// `done` covers both ways of being finished, and the note is what says which
+/// one: a squash or rebase merge leaves the work in `HEAD` under commits the
+/// branch never had, so the reason to believe it is not the reason a plain
+/// merge gives, and the row should not claim otherwise.
+fn classify(dirty: bool, merged: Merged, track: Tracking) -> (State, String) {
     if dirty {
         return (
             State::Dirty,
             "uncommitted changes would be lost".to_string(),
         );
     }
-    if merged {
-        return (
-            State::Done,
-            "merged into HEAD, nothing uncommitted".to_string(),
-        );
+    let finished = match merged {
+        Merged::Commits => Some("merged into HEAD, nothing uncommitted"),
+        Merged::Changes => Some("squash or rebase merged into HEAD, nothing uncommitted"),
+        Merged::No => None,
+    };
+    if let Some(note) = finished {
+        return (State::Done, note.to_string());
     }
     match track {
         Tracking::Pushed => (
@@ -238,30 +245,51 @@ mod tests {
     fn uncommitted_changes_outrank_everything() {
         // Merged and pushed, but the edits in the working tree are the only
         // thing here that a removal could destroy.
-        let (state, note) = classify(true, true, Tracking::Pushed);
+        let (state, note) = classify(true, Merged::Commits, Tracking::Pushed);
         assert_eq!(state, State::Dirty);
         assert!(note.contains("uncommitted"));
     }
 
     #[test]
+    fn a_squash_merge_is_done_too_and_says_which_kind() {
+        // The commits are unreachable from HEAD and the work is on it, which
+        // is what a squash or rebase merge leaves behind. Ticking the row is
+        // the whole point; the note is there to say why gwx believes it.
+        let (state, note) = classify(false, Merged::Changes, Tracking::Gone);
+        assert_eq!(state, State::Done);
+        assert!(state.preselected());
+        assert!(note.contains("squash or rebase"), "{note}");
+    }
+
+    #[test]
     fn only_merged_and_clean_is_preselected() {
-        assert!(classify(false, true, Tracking::Untracked).0.preselected());
+        assert!(classify(false, Merged::Commits, Tracking::Untracked)
+            .0
+            .preselected());
         for track in [Tracking::Pushed, Tracking::Ahead(2), Tracking::Gone] {
-            assert!(!classify(false, false, track).0.preselected());
+            assert!(!classify(false, Merged::No, track).0.preselected());
         }
-        assert!(!classify(true, true, Tracking::Pushed).0.preselected());
+        assert!(!classify(true, Merged::Commits, Tracking::Pushed)
+            .0
+            .preselected());
     }
 
     #[test]
     fn an_unmerged_branch_is_told_apart_by_its_upstream() {
         assert_eq!(
-            classify(false, false, Tracking::Pushed).0,
+            classify(false, Merged::No, Tracking::Pushed).0,
             State::Pushed,
             "everything is on the remote"
         );
-        assert_eq!(classify(false, false, Tracking::Ahead(3)).0, State::Local);
-        assert_eq!(classify(false, false, Tracking::Untracked).0, State::Local);
-        assert_eq!(classify(false, false, Tracking::Gone).0, State::Local);
+        assert_eq!(
+            classify(false, Merged::No, Tracking::Ahead(3)).0,
+            State::Local
+        );
+        assert_eq!(
+            classify(false, Merged::No, Tracking::Untracked).0,
+            State::Local
+        );
+        assert_eq!(classify(false, Merged::No, Tracking::Gone).0, State::Local);
     }
 
     #[test]
@@ -283,7 +311,7 @@ mod tests {
 
     #[test]
     fn the_note_says_how_many_commits_are_at_stake() {
-        let (_, note) = classify(false, false, Tracking::Ahead(3));
+        let (_, note) = classify(false, Merged::No, Tracking::Ahead(3));
         assert!(note.contains('3'), "{note}");
     }
 }

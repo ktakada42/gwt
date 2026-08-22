@@ -40,13 +40,49 @@ is *finished*, which is why only `done` is ticked for you.
 
 | State | Meaning | Removing the worktree | Also removing the branch |
 | --- | --- | --- | --- |
-| `done` | Merged into the main worktree's HEAD, nothing uncommitted | Loses nothing | Loses nothing; the commits are in HEAD |
+| `done` | The work is in the main worktree's HEAD, nothing uncommitted | Loses nothing | Loses nothing; the work is in HEAD |
 | `pushed` | Not merged, but every commit is on its upstream | Loses nothing | Loses nothing; the commits are on the remote |
 | `local` | Commits that are on no remote, or no upstream at all | Loses nothing; the branch keeps the commits | **Loses those commits** |
 | `dirty` | Uncommitted changes | **Loses them** | Same |
 
 A branch whose upstream has been deleted from the remote counts as `local`: the
-commits may be on no remote any more, so gwx treats them as yours alone.
+commits may be on no remote any more, so gwx treats them as yours alone. In a
+"squash and merge" workflow that branch is usually `done` instead, for the
+reason below.
+
+## A squash merge counts as merged
+
+`git branch --merged` asks whether a branch's tip is reachable from `HEAD`. A
+squash merge writes the branch's cumulative diff as one new commit and leaves
+the commits it was made of unreferenced, so the branch is finished in every
+sense that matters and invisible to that question. A rebase merge does the same
+thing with new hashes. In a GitHub "Squash and merge" workflow the remote
+branch is deleted at merge time too, which is how the worktrees that are safest
+to remove ended up labelled `local`.
+
+So `done` covers both, and the note says which one gwx is looking at:
+
+```
+feature/auth     yes             merged into HEAD, nothing uncommitted
+feature/billing  yes             squash or rebase merged into HEAD, nothing uncommitted
+```
+
+The second is a content test: gwx merges the branch into `HEAD` in memory and
+asks whether the result differs from `HEAD`. Two things follow from that.
+
+- Work that was merged and then reverted is **not** `done`. Putting it back is
+  a change, so the trees differ and the branch keeps whatever state its
+  upstream gives it.
+- A branch that changed nothing at all is not `done` either. It merges into
+  anything without effect, which proves nothing about where its commits went.
+
+`git branch -d` runs the same ancestry test that missed the squash merge, so
+under `--with-branch` gwx deletes such a branch with `-D`. That is gwx
+answering for the deletion rather than git, and it is why the content test is
+the strict one described above.
+
+It needs git 2.38 or newer. Older git falls back to the ancestry test alone,
+which is what gwx did before.
 
 ## Keys
 
